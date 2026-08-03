@@ -33,7 +33,7 @@ export const useAuthStore = defineStore('auth', () => {
           ? err.response.data.message[0]
           : 'Registration failed. Please check your inputs.');
       error.value = Array.isArray(message) ? message.join(', ') : message;
-      throw new Error(error.value);
+      throw new Error(error.value || 'Registration failed.');
     } finally {
       loading.value = false;
     }
@@ -51,7 +51,7 @@ export const useAuthStore = defineStore('auth', () => {
       return user.value;
     } catch (err: any) {
       error.value = err.response?.data?.message || 'Invalid email or password.';
-      throw new Error(error.value);
+      throw new Error(error.value || 'Login failed.');
     } finally {
       loading.value = false;
     }

@@ -54,17 +54,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T009 [P] [US1] Unit test for password hashing and registration logic in backend/src/modules/auth/auth.service.spec.ts
-- [ ] T010 [P] [US1] Integration test for POST /api/v1/auth/register in backend/test/auth-register.e2e-spec.ts
+- [x] T009 [P] [US1] Unit test for password hashing and registration logic in backend/src/modules/auth/auth.service.spec.ts
+- [x] T010 [P] [US1] Integration test for POST /api/v1/auth/register in backend/test/auth-register.e2e-spec.ts
 
 ### Implementation for User Story 1
 
-- [ ] T011 [P] [US1] Create RegisterDto with class-validator validation rules in backend/src/modules/auth/dto/register.dto.ts
-- [ ] T012 [US1] Implement registration logic with password hashing and auto-login token issuance in backend/src/modules/auth/auth.service.ts
-- [ ] T013 [US1] Expose POST /api/v1/auth/register route in backend/src/modules/auth/auth.controller.ts
-- [ ] T014 [P] [US1] Implement Pinia auth store register action in frontend/src/stores/auth.store.ts
-- [ ] T015 [P] [US1] Create RegisterForm.vue component with validation error messaging in frontend/src/components/auth/RegisterForm.vue
-- [ ] T016 [US1] Create RegisterView.vue page and configure route in frontend/src/views/RegisterView.vue
+- [x] T011 [P] [US1] Create RegisterDto with class-validator validation rules in backend/src/modules/auth/dto/register.dto.ts
+- [x] T012 [US1] Implement registration logic with password hashing and auto-login token issuance in backend/src/modules/auth/auth.service.ts
+- [x] T013 [US1] Expose POST /api/v1/auth/register route in backend/src/modules/auth/auth.controller.ts
+- [x] T014 [P] [US1] Implement Pinia auth store register action in frontend/src/stores/auth.store.ts
+- [x] T015 [P] [US1] Create RegisterForm.vue component with validation error messaging in frontend/src/components/auth/RegisterForm.vue
+- [x] T016 [US1] Create RegisterView.vue page and configure route in frontend/src/views/RegisterView.vue
 
 **Checkpoint**: At this point, User Story 1 (MVP) is fully functional and testable independently.
 
@@ -78,17 +78,17 @@
 
 ### Tests for User Story 2
 
-- [ ] T017 [P] [US2] Integration test for POST /api/v1/auth/login and GET /api/v1/auth/me in backend/test/auth-login.e2e-spec.ts
+- [x] T017 [P] [US2] Integration test for POST /api/v1/auth/login and GET /api/v1/auth/me in backend/test/auth-login.e2e-spec.ts
 
 ### Implementation for User Story 2
 
-- [ ] T018 [P] [US2] Create LoginDto with email and password validation in backend/src/modules/auth/dto/login.dto.ts
-- [ ] T019 [US2] Implement credential validation method in backend/src/modules/auth/auth.service.ts
-- [ ] T020 [US2] Expose POST /api/v1/auth/login and GET /api/v1/auth/me routes in backend/src/modules/auth/auth.controller.ts
-- [ ] T021 [P] [US2] Implement Pinia auth store login and fetchCurrentUser actions in frontend/src/stores/auth.store.ts
-- [ ] T022 [P] [US2] Create LoginForm.vue component with generic credential error handling in frontend/src/components/auth/LoginForm.vue
-- [ ] T023 [US2] Create LoginView.vue page and configure route in frontend/src/views/LoginView.vue
-- [ ] T024 [US2] Restore auth session on application startup in frontend/src/App.vue
+- [x] T018 [P] [US2] Create LoginDto with email and password validation in backend/src/modules/auth/dto/login.dto.ts
+- [x] T019 [US2] Implement credential validation method in backend/src/modules/auth/auth.service.ts
+- [x] T020 [US2] Expose POST /api/v1/auth/login and GET /api/v1/auth/me routes in backend/src/modules/auth/auth.controller.ts
+- [x] T021 [P] [US2] Implement Pinia auth store login and fetchCurrentUser actions in frontend/src/stores/auth.store.ts
+- [x] T022 [P] [US2] Create LoginForm.vue component with generic credential error handling in frontend/src/components/auth/LoginForm.vue
+- [x] T023 [US2] Create LoginView.vue page and configure route in frontend/src/views/LoginView.vue
+- [x] T024 [US2] Restore auth session on application startup in frontend/src/App.vue
 
 **Checkpoint**: User Stories 1 AND 2 work independently and seamlessly together.
 
@@ -102,14 +102,14 @@
 
 ### Tests for User Story 3
 
-- [ ] T025 [P] [US3] Integration test for POST /api/v1/auth/logout and route access control in backend/test/auth-logout.e2e-spec.ts
+- [x] T025 [P] [US3] Integration test for POST /api/v1/auth/logout and route access control in backend/test/auth-logout.e2e-spec.ts
 
 ### Implementation for User Story 3
 
-- [ ] T026 [US3] Expose POST /api/v1/auth/logout route clearing session cookie in backend/src/modules/auth/auth.controller.ts
-- [ ] T027 [US3] Implement Pinia auth store logout action in frontend/src/stores/auth.store.ts
-- [ ] T028 [P] [US3] Implement Vue Router global navigation guard (router.beforeEach) for protected routes in frontend/src/router/index.ts
-- [ ] T029 [US3] Add Log out action button and user session indicator in frontend/src/components/navigation/NavBar.vue
+- [x] T026 [US3] Expose POST /api/v1/auth/logout route clearing session cookie in backend/src/modules/auth/auth.controller.ts
+- [x] T027 [US3] Implement Pinia auth store logout action in frontend/src/stores/auth.store.ts
+- [x] T028 [P] [US3] Implement Vue Router global navigation guard (router.beforeEach) for protected routes in frontend/src/router/index.ts
+- [x] T029 [US3] Add Log out action button and user session indicator in frontend/src/components/navigation/NavBar.vue
 
 **Checkpoint**: All 3 user stories are complete, independently functional, and protected.
 
@@ -119,8 +119,8 @@
 
 **Purpose**: Helper decorators for user data scoping and feature validation.
 
-- [ ] T030 [P] Add @CurrentUser parameter decorator for user ID extraction in backend/src/modules/auth/decorators/current-user.decorator.ts
-- [ ] T031 Execute quickstart.md validation walkthrough in specs/001-user-authentication/quickstart.md
+- [x] T030 [P] Add @CurrentUser parameter decorator for user ID extraction in backend/src/modules/auth/decorators/current-user.decorator.ts
+- [x] T031 Execute quickstart.md validation walkthrough in specs/001-user-authentication/quickstart.md
 
 ---
 
