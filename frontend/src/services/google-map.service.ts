@@ -8,7 +8,8 @@ export interface LatLng {
 export interface MarkerOptions {
   position: LatLng;
   title?: string;
-  icon?: string | google.maps.Icon;
+  label?: string | google.maps.MarkerLabel;
+  icon?: string | google.maps.Icon | google.maps.Symbol;
   onClick?: () => void;
 }
 
@@ -115,6 +116,7 @@ class GoogleMapService {
       position: options.position,
       map: this.map,
       title: options.title,
+      label: options.label,
       icon: options.icon,
     });
 

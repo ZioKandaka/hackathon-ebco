@@ -4,12 +4,14 @@ import { ChatService } from './chat.service';
 import { ChatMessage, MessageSender } from './entities/chat-message.entity';
 import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
+import { DiscoveryService } from '../discovery/services/discovery.service';
 
 describe('ChatService', () => {
   let service: ChatService;
   let mockRepository: any;
   let mockGeocodingService: any;
   let mockLocationsService: any;
+  let mockDiscoveryService: any;
 
   beforeEach(async () => {
     mockRepository = {
@@ -43,6 +45,20 @@ describe('ChatService', () => {
       }),
     };
 
+    mockDiscoveryService = {
+      searchCandidates: jest.fn().mockResolvedValue([
+        {
+          rank: 1,
+          name: 'Kediri Center Spot',
+          latitude: -7.8167,
+          longitude: 112.0117,
+          demandScore: 88,
+          competitionCount: 0,
+          rationale: 'High demand density',
+        },
+      ]),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChatService,
@@ -57,6 +73,10 @@ describe('ChatService', () => {
         {
           provide: LocationsService,
           useValue: mockLocationsService,
+        },
+        {
+          provide: DiscoveryService,
+          useValue: mockDiscoveryService,
         },
       ],
     }).compile();

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { apiClient } from '../services/api.service';
 import { ChatSseService, ChatStreamEvent } from '../services/chat-sse.service';
+import { useDiscoveryStore } from './discovery.store';
 
 export interface ChatMessageItem {
   id?: string;
@@ -54,6 +55,11 @@ export const useChatStore = defineStore('chat', () => {
             content: event.content,
             createdAt: event.timestamp || new Date().toISOString(),
           });
+
+          if (event.candidates && Array.isArray(event.candidates) && event.candidates.length > 0) {
+            const discoveryStore = useDiscoveryStore();
+            discoveryStore.setCandidates(event.candidates);
+          }
         } else if (event.type === 'error' && event.error) {
           activeStatusStep.value = null;
           errorMessage.value = event.error;

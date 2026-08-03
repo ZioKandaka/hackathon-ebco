@@ -2,6 +2,7 @@ export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
   content?: string;
+  candidates?: any[];
   error?: string;
   timestamp: string;
 }

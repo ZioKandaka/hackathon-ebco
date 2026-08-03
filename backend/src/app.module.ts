@@ -5,6 +5,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { LocationsModule } from './modules/locations/locations.module';
+import { DiscoveryModule } from './modules/discovery/discovery.module';
 import { User } from './modules/users/entities/user.entity';
 import { ChatMessage } from './modules/chat/entities/chat-message.entity';
 import { UserLocation } from './modules/locations/entities/user-location.entity';
@@ -28,6 +29,7 @@ import { UserLocation } from './modules/locations/entities/user-location.entity'
     UsersModule,
     ChatModule,
     LocationsModule,
+    DiscoveryModule,
   ],
 })
 export class AppModule {}

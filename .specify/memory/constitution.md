@@ -1,8 +1,8 @@
 <!--
 Sync Impact Report:
-- Version change: 1.0.0 -> 1.1.0
+- Version change: 1.1.0 -> 1.2.0
 - List of modified principles:
-  - Updated: III. User Experience & AI Interactivity (Added mandatory Google Maps JavaScript API base map constraint)
+  - Updated: Technical Constraints & Infrastructure (Added canonical BigQuery POI table schema and exact column name enforcement rule)
 - Added sections: None
 - Removed sections: None
 - Follow-up TODOs: None
@@ -72,6 +72,10 @@ Sync Impact Report:
   `/backend` (NestJS) governed by root `.specify/` configuration. Each application MUST deploy as a separate
   Cloud Run service with its own Dockerfile.
 
+### BigQuery POI Schema & Query Rules
+- **Canonical Schema**: The BigQuery POI table (`bni-geospatial-845e`) has the following explicit schema: `poi_id`, `poi_name`, `poi_type`, `poi_type_strd`, `address`, `postal_code`, `phone`, `province_code`, `province`, `regency_code`, `regency`, `sub_district_code`, `sub_district`, `latitude` (FLOAT), `longitude` (FLOAT), `poi_point` (GEOGRAPHY), `rating` (FLOAT), `user_rating_count` (INTEGER), `google_maps_uri`, `website_uri`, `business_status`, `weekday_descriptions` (REPEATED STRING), `customer_type`, `flag_rekanan`, `assets` (REPEATED RECORD: `asset_id`, `asset_name`, `asset_catchment_type`), `created_at_gold` (TIMESTAMP).
+- **Exact Column Reference**: All BigQuery SQL queries MUST reference these exact column names — inventing or assuming non-canonical column names is strictly forbidden.
+
 ### Database & Secrets Management
 - **System of Record**: Cloud SQL PostgreSQL in `ebc-cloud-dev-03` is the sole transactional store
   (`user_locations`, `business_type_config`) and caching layer (`isochrone_cache`, `site_visit_cache`).
@@ -89,4 +93,4 @@ Sync Impact Report:
 - **Compliance**: All code reviews and feature specifications MUST verify compliance against the active
   version of this Constitution.
 
-**Version**: 1.1.0 | **Ratified**: 2026-08-03 | **Last Amended**: 2026-08-03
+**Version**: 1.2.0 | **Ratified**: 2026-08-03 | **Last Amended**: 2026-08-03
