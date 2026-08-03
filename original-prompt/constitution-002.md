@@ -1,0 +1,1 @@
+Amend the User Experience Consistency section to add: "All map rendering in the application uses the Google Maps JavaScript API as the base map — no alternative map libraries (Leaflet, Mapbox, OpenLayers, etc.) are used anywhere in the frontend. All location pins, heatmap layers, isochrone polygons, and route overlays render on top of this single Google Maps instance."

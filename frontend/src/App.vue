@@ -4,12 +4,14 @@
     <main class="main-content">
       <router-view />
     </main>
+    <AiChatPanel v-if="authStore.isAuthenticated" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import NavBar from './components/navigation/NavBar.vue';
+import AiChatPanel from './components/chat/AiChatPanel.vue';
 import { useAuthStore } from './stores/auth.store';
 
 const authStore = useAuthStore();

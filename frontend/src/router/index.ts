@@ -17,19 +17,19 @@ const routes = [
   {
     path: '/discover',
     name: 'Discover',
-    component: { template: '<div style="padding: 2rem;"><h1>Discover Features</h1><p>Location Intelligence Map & Analytics</p></div>' },
+    component: () => import('../views/DiscoverView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/heatmap',
     name: 'Heatmap',
-    component: { template: '<div style="padding: 2rem;"><h1>Heatmap Features</h1><p>Density & Catchment Map</p></div>' },
+    component: () => import('../views/HeatmapView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/my-locations',
     name: 'MyLocations',
-    component: { template: '<div style="padding: 2rem;"><h1>My Locations</h1><p>Saved Business Locations</p></div>' },
+    component: () => import('../views/MyLocationsView.vue'),
     meta: { requiresAuth: true },
   },
   {
@@ -46,8 +46,8 @@ export const router = createRouter({
 router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore();
 
-  // Try to restore user session if not loaded yet
-  if (!authStore.isAuthenticated) {
+  // Try to restore user session if not initialized yet
+  if (!authStore.initialized) {
     await authStore.fetchCurrentUser();
   }
 

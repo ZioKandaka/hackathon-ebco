@@ -1,15 +1,9 @@
 <!--
 Sync Impact Report:
-- Version change: Unpopulated Template -> 1.0.0
+- Version change: 1.0.0 -> 1.1.0
 - List of modified principles:
-  - Initialized: I. Code Quality & Type Safety
-  - Initialized: II. Testing Standards (Moderate Rigor)
-  - Initialized: III. User Experience & AI Interactivity
-  - Initialized: IV. Performance & Cost Optimization
-  - Initialized: V. Scope Discipline & Delivery Focus
-- Added sections:
-  - Technical Constraints & Infrastructure
-  - Governance
+  - Updated: III. User Experience & AI Interactivity (Added mandatory Google Maps JavaScript API base map constraint)
+- Added sections: None
 - Removed sections: None
 - Follow-up TODOs: None
 -->
@@ -42,6 +36,9 @@ Sync Impact Report:
   AI Site Visit, Add Business) MUST render a loading or progress indicator during execution.
 - **Single Shared Map**: All map-based results MUST render on a single, shared map component instance across
   features, rather than creating distinct map components per feature.
+- **Google Maps Base Map**: All map rendering in the application MUST use the Google Maps JavaScript API as the base map.
+  No alternative map libraries (Leaflet, Mapbox, OpenLayers, etc.) may be used anywhere in the frontend. All location pins,
+  heatmap layers, isochrone polygons, and route overlays MUST render on top of this single Google Maps instance.
 - **Graceful Error Handling**: Failures from external APIs (Geocoding, Routes, Places, Vertex AI) or
   BigQuery MUST surface user-readable error messages. Raw stack traces or silent failures are forbidden.
 
@@ -92,4 +89,4 @@ Sync Impact Report:
 - **Compliance**: All code reviews and feature specifications MUST verify compliance against the active
   version of this Constitution.
 
-**Version**: 1.0.0 | **Ratified**: 2026-08-03 | **Last Amended**: 2026-08-03
+**Version**: 1.1.0 | **Ratified**: 2026-08-03 | **Last Amended**: 2026-08-03
