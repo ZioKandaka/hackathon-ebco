@@ -50,7 +50,7 @@ export class AuthController {
   ) {
     const result = await this.authService.register(registerDto);
     this.setAuthCookie(res, result.accessToken);
-    return { user: result.user };
+    return { user: result.user, accessToken: result.accessToken };
   }
 
   @Post('login')
@@ -61,7 +61,7 @@ export class AuthController {
   ) {
     const result = await this.authService.validateUser(loginDto);
     this.setAuthCookie(res, result.accessToken);
-    return { user: result.user };
+    return { user: result.user, accessToken: result.accessToken };
   }
 
   @Post('logout')
