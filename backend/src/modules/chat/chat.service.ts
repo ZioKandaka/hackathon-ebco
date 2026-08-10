@@ -8,6 +8,7 @@ import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
 import { OrchestratorService } from './orchestrator.service';
+import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
 
 export interface HeatmapPoint {
   lat: number;
@@ -101,6 +102,7 @@ export class ChatService {
     private readonly discoveryService: DiscoveryService,
     private readonly siteVisitService: SiteVisitService,
     private readonly orchestratorService: OrchestratorService,
+    private readonly vertexAiOrchestratorService: VertexAiOrchestratorService,
   ) {}
 
   async getHistory(userId: string): Promise<ChatMessage[]> {
@@ -131,124 +133,46 @@ export class ChatService {
       try {
         await this.saveMessage(userId, MessageSender.USER, userMessage);
 
-        const plannedTools = this.orchestratorService.planExecution(userMessage);
+        const historyMessages = await this.getHistory(userId);
+        const chatHistory = historyMessages.map((m) => ({
+          sender: m.sender as 'user' | 'assistant',
+          content: m.content,
+        }));
 
-        if (plannedTools.length > 1) {
-          subject.next({
-            data: {
-              type: 'status',
-              step: `Orchestrating AI tools (${plannedTools.join(' → ')})...`,
-              timestamp: new Date().toISOString(),
-            },
-          });
+        const userLocations = await this.locationsService.getUserLocations(userId);
 
-          await new Promise((resolve) => setTimeout(resolve, 300));
+        const result = await this.vertexAiOrchestratorService.processUserMessage(
+          userMessage,
+          chatHistory,
+          userLocations.map((l) => ({ id: l.id, name: l.name })),
+          {
+            add_business: (args) => this.executeAddBranchSkill(userId, args, subject),
+            discover_locations: (args) => this.executeDiscoverySkill(userId, args, subject),
+            generate_heatmap: (args) => this.executeHeatmapSkill(userId, args, subject),
+            catchment_score: (args) => this.executeCatchmentSkill(userId, args, userLocations, subject),
+            accessibility_analysis: (args) => this.executeAccessibilitySkill(userId, args, userLocations, subject),
+            ai_site_visit: (args) => this.executeSiteVisitSkill(userId, args, userLocations, subject),
+          },
+          subject,
+        );
 
-          const result = await this.orchestratorService.executeChain(
-            userId,
-            userMessage,
-            plannedTools,
-            subject,
-          );
+        await this.saveMessage(userId, MessageSender.ASSISTANT, result.textResponse);
 
-          await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+        subject.next({
+          data: {
+            type: 'message',
+            content: result.textResponse,
+            candidates: result.accumulatedPayloads.candidates,
+            heatmapData: result.accumulatedPayloads.heatmapData,
+            catchmentData: result.accumulatedPayloads.catchmentData,
+            accessibilityData: result.accumulatedPayloads.accessibilityData,
+            siteVisitData: result.accumulatedPayloads.siteVisitData,
+            timestamp: new Date().toISOString(),
+          },
+        });
 
-          subject.next({
-            data: {
-              type: 'message',
-              content: result.summary,
-              candidates: result.payload.candidates,
-              heatmapData: result.payload.heatmapData,
-              catchmentData: result.payload.catchmentData,
-              accessibilityData: result.payload.accessibilityData,
-              siteVisitData: result.payload.siteVisitData,
-              timestamp: new Date().toISOString(),
-            },
-          });
-
-          subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-          subject.complete();
-          return;
-        }
-
-        const lowerMsg = userMessage.toLowerCase();
-        const isSiteVisitIntent =
-          lowerMsg.includes('site visit') ||
-          lowerMsg.includes('visual check') ||
-          lowerMsg.includes('visual assessment') ||
-          lowerMsg.includes('what does spot') ||
-          lowerMsg.includes('look like') ||
-          lowerMsg.includes('street view');
-
-        const isAccessibilityIntent =
-          !isSiteVisitIntent &&
-          (lowerMsg.includes('accessible') ||
-          lowerMsg.includes('accessibility') ||
-          lowerMsg.includes('isochrone') ||
-          lowerMsg.includes('travel time') ||
-          lowerMsg.includes('drive time') ||
-          lowerMsg.includes('walk time') ||
-          lowerMsg.includes('transit time') ||
-          lowerMsg.includes('minute drive') ||
-          lowerMsg.includes('minute walk') ||
-          lowerMsg.includes('minute transit'));
-
-        const isCatchmentIntent =
-          !isSiteVisitIntent &&
-          !isAccessibilityIntent &&
-          (lowerMsg.includes('catchment') ||
-          lowerMsg.includes('catchment score') ||
-          lowerMsg.includes('analyze catchment') ||
-          lowerMsg.includes('catchment analysis') ||
-          lowerMsg.includes('catchment for'));
-
-        const isHeatmapIntent =
-          !isSiteVisitIntent &&
-          !isAccessibilityIntent &&
-          !isCatchmentIntent &&
-          (lowerMsg.includes('heatmap') ||
-          lowerMsg.includes('heat map') ||
-          lowerMsg.includes('density map') ||
-          lowerMsg.includes('density heatmap'));
-
-        const isDiscoveryIntent =
-          !isSiteVisitIntent &&
-          !isAccessibilityIntent &&
-          !isCatchmentIntent &&
-          !isHeatmapIntent &&
-          (lowerMsg.includes('find') ||
-          lowerMsg.includes('discover') ||
-          lowerMsg.includes('where') ||
-          lowerMsg.includes('spots') ||
-          lowerMsg.includes('spot') ||
-          lowerMsg.includes('candidate'));
-
-        const isAddBranchIntent =
-          !isSiteVisitIntent &&
-          !isAccessibilityIntent &&
-          !isCatchmentIntent &&
-          !isHeatmapIntent &&
-          !isDiscoveryIntent &&
-          (lowerMsg.includes('add') ||
-            lowerMsg.includes('create') ||
-            lowerMsg.includes('branch') ||
-            lowerMsg.includes('register'));
-
-        if (isSiteVisitIntent) {
-          await this.executeSiteVisitSkill(userId, userMessage, subject);
-        } else if (isAccessibilityIntent) {
-          await this.executeAccessibilitySkill(userId, userMessage, subject);
-        } else if (isCatchmentIntent) {
-          await this.executeCatchmentSkill(userId, userMessage, subject);
-        } else if (isHeatmapIntent) {
-          await this.executeHeatmapSkill(userId, userMessage, subject);
-        } else if (isDiscoveryIntent) {
-          await this.executeDiscoverySkill(userId, userMessage, subject);
-        } else if (isAddBranchIntent) {
-          await this.executeAddBranchSkill(userId, userMessage, subject);
-        } else {
-          await this.executeGeneralChatResponse(userId, userMessage, subject);
-        }
+        subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+        subject.complete();
       } catch (err: any) {
         subject.next({
           data: {
@@ -264,75 +188,21 @@ export class ChatService {
     return subject.asObservable();
   }
 
-  private async executeSiteVisitSkill(
+  async executeSiteVisitSkill(
     userId: string,
-    userMessage: string,
+    args: { locationNameOrId: string },
+    userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
-  ): Promise<void> {
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Determining the right action (AI Site Visit)...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    const userLocations = await this.locationsService.getUserLocations(userId);
-
-    if (userLocations.length === 0) {
-      userLocations.push({
-        id: 'demo-loc-1',
-        userId,
-        name: 'Sudirman Branch',
-        businessType: 'coffee_shop',
-        fullAddress: 'Jl. Jend. Sudirman No. 45, Jakarta',
-        latitude: -6.2088,
-        longitude: 106.8456,
-        confidence: 1.0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as any);
-    }
-
-    const matchedLocation = this.findMatchingLocation(userMessage, userLocations);
+  ): Promise<any> {
+    const matchedLocation = this.resolveLocation(args.locationNameOrId, userLocations);
 
     if (!matchedLocation) {
       const availableNames = userLocations.map((l) => l.name).join(', ');
-      const notFoundMsg = `I couldn't find a matching location for the site visit. Your saved locations are: ${availableNames}.`;
-      await this.saveMessage(userId, MessageSender.ASSISTANT, notFoundMsg);
-      subject.next({
-        data: {
-          type: 'message',
-          content: notFoundMsg,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
+      const summary = userLocations.length === 0
+        ? "You don't have any registered business locations in your account yet. You can add one by telling me e.g. 'Add my Sudirman Coffee branch at Jl. Sudirman No. 10'."
+        : `I couldn't find a matching saved location for "${args.locationNameOrId}". Your saved locations are: ${availableNames}.`;
+      return { summary };
     }
-
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Fetching street-level imagery and satellite snapshot...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Analyzing the site visually with multimodal vision AI...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
 
     const result = await this.siteVisitService.analyzeSite(
       Number(matchedLocation.latitude),
@@ -341,102 +211,38 @@ export class ChatService {
     );
 
     const visitId = `sv-${Date.now().toString(36)}`;
-    await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+    const siteVisitData: SiteVisitDataPayload = {
+      visitId,
+      locationName: matchedLocation.name,
+      hasStreetViewCoverage: result.hasStreetViewCoverage,
+      overallVisualScore: result.overallVisualScore,
+      images: result.images,
+      criteria: result.criteria as any,
+      center: { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) },
+      summary: result.summary,
+    };
 
-    subject.next({
-      data: {
-        type: 'message',
-        content: result.summary,
-        siteVisitData: {
-          visitId,
-          locationName: matchedLocation.name,
-          hasStreetViewCoverage: result.hasStreetViewCoverage,
-          overallVisualScore: result.overallVisualScore,
-          images: result.images,
-          criteria: result.criteria as any,
-          center: { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) },
-          summary: result.summary,
-        },
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-    subject.complete();
+    return siteVisitData;
   }
 
-  private async executeAccessibilitySkill(
+  async executeAccessibilitySkill(
     userId: string,
-    userMessage: string,
+    args: { locationNameOrId: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number },
+    userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
-  ): Promise<void> {
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Determining the right action (Accessibility Analysis)...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    const travelMode = this.extractTravelMode(userMessage);
-    const timeMinutes = this.extractTimeMinutes(userMessage);
-
-    const userLocations = await this.locationsService.getUserLocations(userId);
-
-    if (userLocations.length === 0) {
-      userLocations.push({
-        id: 'demo-loc-1',
-        userId,
-        name: 'Sudirman Branch',
-        businessType: 'coffee_shop',
-        fullAddress: 'Jl. Jend. Sudirman No. 45, Jakarta',
-        latitude: -6.2088,
-        longitude: 106.8456,
-        confidence: 1.0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as any);
-    }
-
-    const matchedLocation = this.findMatchingLocation(userMessage, userLocations);
+  ): Promise<any> {
+    const matchedLocation = this.resolveLocation(args.locationNameOrId, userLocations);
 
     if (!matchedLocation) {
       const availableNames = userLocations.map((l) => l.name).join(', ');
-      const notFoundMsg = `I couldn't find a matching registered location for accessibility check. Your available saved locations are: ${availableNames}.`;
-      await this.saveMessage(userId, MessageSender.ASSISTANT, notFoundMsg);
-      subject.next({
-        data: {
-          type: 'message',
-          content: notFoundMsg,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
+      const summary = userLocations.length === 0
+        ? "You don't have any registered business locations in your account yet. You can add one by telling me e.g. 'Add my Sudirman Coffee branch at Jl. Sudirman No. 10'."
+        : `I couldn't find a matching saved location for "${args.locationNameOrId}". Your saved locations are: ${availableNames}.`;
+      return { summary };
     }
 
-    subject.next({
-      data: {
-        type: 'status',
-        step: `Calculating ${timeMinutes}-minute ${travelMode} travel-time boundary...`,
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Analyzing reachable area POI density...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const travelMode = args.travelMode || 'drive';
+    const timeMinutes = args.timeMinutes || 10;
 
     const history = await this.getHistory(userId);
     let previousRadiusScore: number | undefined = undefined;
@@ -460,120 +266,43 @@ export class ChatService {
     });
 
     const analysisId = `acc-${Date.now().toString(36)}`;
-    await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+    const accessibilityData: AccessibilityDataPayload = {
+      analysisId,
+      locationId: matchedLocation.id,
+      locationName: matchedLocation.name,
+      travelMode,
+      timeMinutes,
+      compositeScore: result.compositeScore,
+      subScores: result.subScores,
+      poiCount: result.poiCount,
+      polygonCoordinates: result.polygonCoordinates,
+      radiusScoreDelta: previousRadiusScore !== undefined ? result.compositeScore - previousRadiusScore : undefined,
+      summary: result.summary,
+    };
 
-    subject.next({
-      data: {
-        type: 'message',
-        content: result.summary,
-        accessibilityData: {
-          analysisId,
-          locationId: matchedLocation.id,
-          locationName: matchedLocation.name,
-          travelMode,
-          timeMinutes,
-          compositeScore: result.compositeScore,
-          subScores: result.subScores,
-          poiCount: result.poiCount,
-          polygonCoordinates: result.polygonCoordinates,
-          radiusScoreDelta: previousRadiusScore !== undefined ? result.compositeScore - previousRadiusScore : undefined,
-          summary: result.summary,
-        },
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-    subject.complete();
+    return accessibilityData;
   }
 
-  private extractTravelMode(msg: string): 'drive' | 'walk' | 'transit' {
-    const lower = msg.toLowerCase();
-    if (lower.includes('walk') || lower.includes('walking') || lower.includes('foot')) return 'walk';
-    if (lower.includes('transit') || lower.includes('bus') || lower.includes('train') || lower.includes('public transit')) return 'transit';
-    return 'drive';
-  }
-
-  private extractTimeMinutes(msg: string): number {
-    const match = msg.match(/(\d+)\s*(?:min|minute|minutes|mins)\b/i);
-    if (match && match[1]) {
-      return Math.min(30, Math.max(1, parseInt(match[1], 10)));
-    }
-    return 10;
-  }
-
-  private async executeCatchmentSkill(
+  async executeCatchmentSkill(
     userId: string,
-    userMessage: string,
+    args: { locationNameOrId: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean },
+    userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
-  ): Promise<void> {
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Determining the right action (Catchment Score)...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    const radiusKm = this.extractRadiusFromMessage(userMessage);
-    const userLocations = await this.locationsService.getUserLocations(userId);
-
-    if (userLocations.length === 0) {
-      userLocations.push({
-        id: 'demo-loc-1',
-        userId,
-        name: 'Sudirman Branch',
-        businessType: 'coffee_shop',
-        fullAddress: 'Jl. Jend. Sudirman No. 45, Jakarta',
-        latitude: -6.2088,
-        longitude: 106.8456,
-        confidence: 1.0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as any);
-    }
-
-    const matchedLocation = this.findMatchingLocation(userMessage, userLocations);
+  ): Promise<any> {
+    const matchedLocation = this.resolveLocation(args.locationNameOrId, userLocations);
 
     if (!matchedLocation) {
       const availableNames = userLocations.map((l) => l.name).join(', ');
-      const notFoundMsg = `I couldn't find a matching registered location. Your available saved locations are: ${availableNames}.\n\nPlease mention one of these location names!`;
-      await this.saveMessage(userId, MessageSender.ASSISTANT, notFoundMsg);
-      subject.next({
-        data: {
-          type: 'message',
-          content: notFoundMsg,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
+      const summary = userLocations.length === 0
+        ? "You don't have any registered business locations in your account yet. You can add one by telling me e.g. 'Add my Sudirman Coffee branch at Jl. Sudirman No. 10'."
+        : `I couldn't find a matching saved location for "${args.locationNameOrId}". Your saved locations are: ${availableNames}.`;
+      return { summary };
     }
 
-    subject.next({
-      data: {
-        type: 'status',
-        step: `Gathering nearby location data within ${radiusKm}km...`,
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Calculating catchment score...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const customWeights = this.extractCustomWeights(userMessage);
+    const radiusKm = args.radiusKm || 2.0;
+    const customWeights: any = {};
+    if (args.ignoreCompetition) customWeights.competitionPenalty = 0;
+    if (args.ignoreSaturation) customWeights.networkSaturation = 0;
 
     const result = await this.discoveryService.calculateCatchmentScore({
       lat: Number(matchedLocation.latitude),
@@ -585,506 +314,120 @@ export class ChatService {
     });
 
     const analysisId = `cs-${Date.now().toString(36)}`;
-    await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+    const catchmentData: CatchmentDataPayload = {
+      analysisId,
+      locationId: matchedLocation.id,
+      locationName: matchedLocation.name,
+      radiusKm,
+      compositeScore: result.compositeScore,
+      subScores: result.subScores,
+      poiCount: result.poiCount,
+      center: { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) },
+      summary: result.summary,
+    };
 
-    subject.next({
-      data: {
-        type: 'message',
-        content: result.summary,
-        catchmentData: {
-          analysisId,
-          locationId: matchedLocation.id,
-          locationName: matchedLocation.name,
-          radiusKm,
-          compositeScore: result.compositeScore,
-          subScores: result.subScores,
-          poiCount: result.poiCount,
-          center: { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) },
-          summary: result.summary,
-        },
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-    subject.complete();
+    return catchmentData;
   }
 
-  private extractRadiusFromMessage(msg: string): number {
-    const match = msg.match(/(?:within|radius|distance|radius\s+of)\s*(\d+(?:\.\d+)?)\s*(?:km|kilometer|kilometers)/i);
-    if (match && match[1]) {
-      return Math.min(10.0, Math.max(0.1, parseFloat(match[1])));
-    }
-    const simpleKmMatch = msg.match(/(\d+(?:\.\d+)?)\s*(?:km|kilometer|kilometers)/i);
-    if (simpleKmMatch && simpleKmMatch[1]) {
-      return Math.min(10.0, Math.max(0.1, parseFloat(simpleKmMatch[1])));
-    }
-    return 2.0;
-  }
-
-  private findMatchingLocation(msg: string, locations: any[]): any | null {
-    if (locations.length === 0) return null;
-    const lower = msg.toLowerCase();
-
-    for (const loc of locations) {
-      if (loc.name && lower.includes(loc.name.toLowerCase())) {
-        return loc;
-      }
-    }
-
-    if (lower.includes('sudirman') || lower.includes('branch')) {
-      const sudirmanLoc = locations.find((l) => l.name && l.name.toLowerCase().includes('sudirman'));
-      if (sudirmanLoc) return sudirmanLoc;
-    }
-
-    return locations[0];
-  }
-
-  private extractCustomWeights(msg: string): Partial<Record<keyof CatchmentSubScores, number>> | undefined {
-    const lower = msg.toLowerCase();
-    const weights: Partial<Record<keyof CatchmentSubScores, number>> = {};
-    let hasCustom = false;
-
-    if (lower.includes('ignore competition') || lower.includes('no competition')) {
-      weights.competitionPenalty = 0;
-      hasCustom = true;
-    }
-    if (lower.includes('ignore saturation') || lower.includes('no saturation')) {
-      weights.networkSaturation = 0;
-      hasCustom = true;
-    }
-    return hasCustom ? weights : undefined;
-  }
-
-  private async executeHeatmapSkill(
+  async executeHeatmapSkill(
     userId: string,
-    userMessage: string,
+    args: { region: string; businessType?: string; customCategory?: string; maxRating?: number },
     subject: Subject<{ data: ChatStreamEvent }>,
-  ): Promise<void> {
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Determining the right action (Heatmap Visualization)...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 400));
-
-    const region = this.extractRegionFromMessage(userMessage);
-
-    if (!region || userMessage.trim().length < 8) {
-      const promptQuestion =
-        "I'd be happy to show you a heatmap! Which region or city (e.g. Kediri, Bandung, Jakarta) and business or category are you interested in?";
-      await this.saveMessage(userId, MessageSender.ASSISTANT, promptQuestion);
-      subject.next({
-        data: {
-          type: 'message',
-          content: promptQuestion,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
-    }
-
-    subject.next({
-      data: {
-        type: 'status',
-        step: `Aggregating BigQuery POI location data for ${region}...`,
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Rendering weighted heatmap layer...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const maxRating = this.extractMaxRating(userMessage);
-    const customCategory = this.extractCustomCategory(userMessage);
-    const businessType = this.extractBusinessType(userMessage) || undefined;
-
-    const mode = maxRating !== undefined || customCategory ? 'custom_prompt' : 'business_based';
+  ): Promise<any> {
+    const mode = args.customCategory || args.maxRating ? 'custom_prompt' : 'business_based';
 
     const result = await this.discoveryService.generateHeatmapDataset({
       mode,
-      businessType,
-      region,
-      customCategory,
-      maxRating,
+      businessType: args.businessType,
+      region: args.region,
+      customCategory: args.customCategory,
+      maxRating: args.maxRating,
     });
-
-    if (result.points.length === 0) {
-      const emptyMsg = `No POI data points found matching criteria in ${region}. Try broadening your filter or selecting a different area.`;
-      await this.saveMessage(userId, MessageSender.ASSISTANT, emptyMsg);
-      subject.next({
-        data: {
-          type: 'message',
-          content: emptyMsg,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
-    }
 
     const queryId = `hm-${Date.now().toString(36)}`;
-    await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+    const heatmapData: HeatmapDataPayload = {
+      queryId,
+      mode,
+      businessType: args.businessType,
+      region: args.region,
+      pointCount: result.points.length,
+      points: result.points,
+      summary: result.summary,
+    };
 
-    subject.next({
-      data: {
-        type: 'message',
-        content: result.summary,
-        heatmapData: {
-          queryId,
-          mode,
-          businessType,
-          region,
-          pointCount: result.points.length,
-          points: result.points,
-          summary: result.summary,
-        },
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-    subject.complete();
+    return heatmapData;
   }
 
-  private extractMaxRating(msg: string): number | undefined {
-    const match = msg.match(/rating\s+(?:below|under|less\s+than|<)\s*(\d+(?:\.\d+)?)/i);
-    if (match && match[1]) {
-      return parseFloat(match[1]);
-    }
-    return undefined;
-  }
-
-  private extractCustomCategory(msg: string): string | undefined {
-    const lower = msg.toLowerCase();
-    if (lower.includes('preschool') || lower.includes('paud') || lower.includes('tk')) return 'preschool';
-    if (lower.includes('high school') || lower.includes('highschool') || lower.includes('sma') || lower.includes('smk')) return 'high_school';
-    if (lower.includes('school') || lower.includes('sekolah')) return 'school';
-    if (lower.includes('university') || lower.includes('college') || lower.includes('kampus')) return 'university';
-    if (lower.includes('hospital') || lower.includes('rumah sakit') || lower.includes('clinic')) return 'hospital';
-    if (lower.includes('park') || lower.includes('taman')) return 'park';
-    if (lower.includes('restaurant') || lower.includes('cafe') || lower.includes('kuliner')) return 'restaurant';
-    return undefined;
-  }
-
-  private async executeDiscoverySkill(
+  async executeDiscoverySkill(
     userId: string,
-    userMessage: string,
+    args: { businessType: string; region: string; count?: number },
     subject: Subject<{ data: ChatStreamEvent }>,
-  ): Promise<void> {
-    // Event 1: Status update
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Determining the right action (Location Discovery)...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const region = this.extractRegionFromMessage(userMessage);
-    const businessType = this.extractBusinessType(userMessage);
-
-    if (!region || userMessage.trim().length < 10) {
-      const promptQuestion =
-        "I'd love to help you discover location candidates! Which business type (e.g. coffee shop, minimarket) and region or city are you looking in?";
-      await this.saveMessage(userId, MessageSender.ASSISTANT, promptQuestion);
-      subject.next({
-        data: {
-          type: 'message',
-          content: promptQuestion,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
-    }
-
-    // Event 2: Query BigQuery POIs
-    subject.next({
-      data: {
-        type: 'status',
-        step: `Querying BigQuery POI datasets for ${region}...`,
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 600));
-
-    // Event 3: Score and rank
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Ranking top candidate spots by demand density & competition...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 600));
-
+  ): Promise<any> {
+    const count = args.count || 5;
     const candidates = await this.discoveryService.searchCandidates(
-      businessType || 'business',
-      region,
-      5,
+      args.businessType,
+      args.region,
+      count,
     );
 
     const formattedList = candidates
-      .map(
-        (c) =>
-          `Spot ${c.rank}: ${c.name} (Score: ${c.demandScore}/100)\n  • ${c.rationale}`,
-      )
+      .map((c) => `Spot ${c.rank}: ${c.name} (Score: ${c.demandScore}/100)\n  • ${c.rationale}`)
       .join('\n\n');
 
-    const resultMessage = `Here are the top candidate spots for ${businessType || 'business'} in ${region}:\n\n${formattedList}\n\nPins have been rendered on your map. Click any pin to inspect details.`;
+    const resultMessage = `Here are the top candidate spots for ${args.businessType} in ${args.region}:\n\n${formattedList}\n\nPins have been rendered on your map. Click any pin to inspect details.`;
 
-    await this.saveMessage(userId, MessageSender.ASSISTANT, resultMessage);
-
-    subject.next({
-      data: {
-        type: 'message',
-        content: resultMessage,
-        candidates: candidates.map((c) => ({
-          rank: c.rank,
-          name: c.name,
-          latitude: c.latitude,
-          longitude: c.longitude,
-          demandScore: c.demandScore,
-          competitionCount: c.competitionCount,
-          rationale: c.rationale,
-          regencyCode: c.regencyCode,
-        })),
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-    subject.complete();
+    return {
+      candidates,
+      summary: resultMessage,
+    };
   }
 
-  private async executeAddBranchSkill(
+  async executeAddBranchSkill(
     userId: string,
-    userMessage: string,
+    args: { businessName: string; businessType: string; address: string },
     subject: Subject<{ data: ChatStreamEvent }>,
-  ): Promise<void> {
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Determining the right action (Add Business/Branch)...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const address = this.extractAddress(userMessage);
-    const businessName = this.extractBusinessName(userMessage);
-    const businessType = this.extractBusinessType(userMessage);
-
-    if (!businessName || !businessType) {
-      const promptQuestion =
-        'I see you want to add a location! Could you please specify the business name and type (e.g. coffee shop, retail, restaurant)?';
-      await this.saveMessage(userId, MessageSender.ASSISTANT, promptQuestion);
-      subject.next({
-        data: {
-          type: 'message',
-          content: promptQuestion,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
-    }
-
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Looking up address via Google Geocoding API...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 600));
-
-    const geocodedCandidates = await this.geocodingService.geocodeAddress(address);
-
+  ): Promise<any> {
+    const geocodedCandidates = await this.geocodingService.geocodeAddress(args.address);
     if (geocodedCandidates.length === 0) {
-      const errorMsg = `Couldn't find coordinates for "${address}". Could you double check the spelling or provide a nearby landmark?`;
-      await this.saveMessage(userId, MessageSender.ASSISTANT, errorMsg);
-      subject.next({
-        data: {
-          type: 'message',
-          content: errorMsg,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
+      return {
+        summary: `Couldn't find coordinates for "${args.address}". Could you double check the spelling or provide a nearby landmark?`,
+      };
     }
-
-    if (geocodedCandidates.length > 1) {
-      const candidateList = geocodedCandidates
-        .slice(0, 3)
-        .map((c, i) => `${i + 1}. ${c.formattedAddress}`)
-        .join('\n');
-      const ambiguityMsg = `I found multiple matching addresses for "${address}":\n${candidateList}\n\nPlease type the number or address of the correct option.`;
-      await this.saveMessage(userId, MessageSender.ASSISTANT, ambiguityMsg);
-      subject.next({
-        data: {
-          type: 'message',
-          content: ambiguityMsg,
-          timestamp: new Date().toISOString(),
-        },
-      });
-      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-      subject.complete();
-      return;
-    }
-
+    
     const primaryGeocode = geocodedCandidates[0];
-
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Creating your new branch location record...',
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const existingDuplicate = await this.locationsService.findDuplicateLocation(
-      userId,
-      primaryGeocode.formattedAddress,
-    );
-
     const newLocation = await this.locationsService.createLocation(userId, {
-      name: businessName,
-      businessType,
+      name: args.businessName,
+      businessType: args.businessType,
       fullAddress: primaryGeocode.formattedAddress,
       latitude: primaryGeocode.latitude,
       longitude: primaryGeocode.longitude,
+      confidence: primaryGeocode.confidence,
       province: primaryGeocode.province,
       regency: primaryGeocode.regency,
       subDistrict: primaryGeocode.subDistrict,
-      postalCode: primaryGeocode.postalCode,
-      confidence: primaryGeocode.confidence,
+      postalCode: primaryGeocode.postalCode
     });
 
-    let confirmationText = `Successfully registered "${newLocation.name}" (${newLocation.businessType}) at ${newLocation.fullAddress}. A new location pin has been added to your map!`;
-
-    if (existingDuplicate) {
-      confirmationText += ` (Note: A similar address "${existingDuplicate.fullAddress}" was already in your locations).`;
-    }
-
-    await this.saveMessage(userId, MessageSender.ASSISTANT, confirmationText);
-
-    subject.next({
-      data: {
-        type: 'message',
-        content: confirmationText,
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-    subject.complete();
+    return {
+      location: newLocation,
+      summary: `Successfully registered business branch "${newLocation.name}" (${newLocation.businessType}) at ${newLocation.fullAddress}. A new location pin has been added to your map!`,
+    };
   }
 
-  private async executeGeneralChatResponse(
-    userId: string,
-    userMessage: string,
-    subject: Subject<{ data: ChatStreamEvent }>,
-  ): Promise<void> {
-    subject.next({
-      data: {
-        type: 'status',
-        step: 'Understanding your request...',
-        timestamp: new Date().toISOString(),
-      },
-    });
+  private resolveLocation(locationNameOrId: string, userLocations: any[]): any | null {
+    if (!userLocations || userLocations.length === 0) return null;
+    if (!locationNameOrId) return userLocations[0];
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    const target = locationNameOrId.toLowerCase();
 
-    const responseText = `I am your Location Intelligence assistant. You can ask me to "Find me the top 5 spots for a coffee shop in Kediri" or "Add a new branch at [address]".`;
+    const byId = userLocations.find((l) => l.id === locationNameOrId);
+    if (byId) return byId;
 
-    await this.saveMessage(userId, MessageSender.ASSISTANT, responseText);
+    const byName = userLocations.find(
+      (l) => l.name && (l.name.toLowerCase() === target || target.includes(l.name.toLowerCase()) || l.name.toLowerCase().includes(target)),
+    );
+    if (byName) return byName;
 
-    subject.next({
-      data: {
-        type: 'message',
-        content: responseText,
-        timestamp: new Date().toISOString(),
-      },
-    });
-
-    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
-    subject.complete();
-  }
-
-  private extractRegionFromMessage(msg: string): string {
-    const inMatch = msg.match(/in\s+([A-Za-z0-9\s]+?)(?=\s*$|\s+called|\s+with)/i);
-    if (inMatch && inMatch[1]) {
-      return inMatch[1].trim();
-    }
-    const nearMatch = msg.match(/near\s+([A-Za-z0-9\s]+?)(?=\s*$|\s+called|\s+with)/i);
-    if (nearMatch && nearMatch[1]) {
-      return nearMatch[1].trim();
-    }
-    if (msg.toLowerCase().includes('kediri')) return 'Kediri';
-    if (msg.toLowerCase().includes('bandung')) return 'Bandung';
-    if (msg.toLowerCase().includes('bekasi')) return 'Bekasi';
-    if (msg.toLowerCase().includes('jakarta')) return 'Jakarta';
-    return 'Kediri';
-  }
-
-  private extractAddress(msg: string): string {
-    const atMatch = msg.match(/at\s+([^,]+(?:,[^,]+)*?)(?=\s+called|\s+it's|\s*$)/i);
-    if (atMatch && atMatch[1]) {
-      return atMatch[1].trim();
-    }
-    const onMatch = msg.match(/on\s+([^,]+(?:,[^,]+)*?)(?=\s+called|\s+it's|\s*$)/i);
-    if (onMatch && onMatch[1]) {
-      return onMatch[1].trim();
-    }
-    return msg;
-  }
-
-  private extractBusinessName(msg: string): string | null {
-    const calledMatch = msg.match(/called\s+([A-Za-z0-9\s]+?)(?=\s+it's|\s+at|\s*$)/i);
-    if (calledMatch && calledMatch[1]) {
-      return calledMatch[1].trim();
-    }
-    const myMatch = msg.match(/my\s+([A-Za-z0-9\s]+?)\s+(?:branch|shop|store|location)/i);
-    if (myMatch && myMatch[1]) {
-      return myMatch[1].trim();
-    }
-    return 'My Branch';
-  }
-
-  private extractBusinessType(msg: string): string | null {
-    if (msg.toLowerCase().includes('coffee')) return 'coffee_shop';
-    if (msg.toLowerCase().includes('minimarket') || msg.toLowerCase().includes('retail')) return 'retail';
-    if (msg.toLowerCase().includes('restaurant') || msg.toLowerCase().includes('food')) return 'restaurant';
-    if (msg.toLowerCase().includes('bank')) return 'bank';
-    return 'business';
+    return userLocations[0] || null;
   }
 }

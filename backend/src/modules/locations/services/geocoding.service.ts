@@ -21,7 +21,7 @@ export class GeocodingService {
   async geocodeAddress(address: string): Promise<GeocodedAddress[]> {
     const apiKey = this.getApiKey();
 
-    if (apiKey && apiKey !== 'DEMO_KEY' && apiKey !== 'YOUR_GOOGLE_MAPS_API_KEY_HERE') {
+    if (apiKey) {
       try {
         const response = await axios.get('https://maps.googleapis.com/maps/api/geocode/json', {
           params: {
@@ -50,6 +50,7 @@ export class GeocodingService {
         }
       } catch (err) {
         // Fallback to offline heuristic geocode on network failure
+        console.error(err)
       }
     }
 

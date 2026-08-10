@@ -7,6 +7,7 @@ import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
 import { OrchestratorService } from './orchestrator.service';
+import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -16,6 +17,7 @@ describe('ChatService', () => {
   let mockDiscoveryService: any;
   let mockSiteVisitService: any;
   let mockOrchestratorService: any;
+  let mockVertexAiOrchestratorService: any;
 
   beforeEach(async () => {
     mockRepository = {
@@ -127,19 +129,49 @@ describe('ChatService', () => {
       }),
     };
 
-    mockOrchestratorService = {
-      planExecution: jest.fn().mockImplementation((msg: string) => {
+    mockOrchestratorService = {};
+
+    mockVertexAiOrchestratorService = {
+      processUserMessage: jest.fn().mockImplementation(async (msg, history, locations, executors, subject) => {
         if (msg.includes('Find coffee shop candidates') && msg.includes('heatmap')) {
-          return ['discover', 'heatmap'];
+          subject.next({ data: { type: 'status', step: 'Calling discover_locations...' } });
+          const disc = await executors.discover_locations({ businessType: 'coffee_shop', region: 'Kediri' });
+          subject.next({ data: { type: 'status', step: 'Calling generate_heatmap...' } });
+          const hm = await executors.generate_heatmap({ region: 'Kediri', businessType: 'coffee_shop' });
+          return {
+            textResponse: 'Synthesized multi-tool analysis report for Kediri.',
+            accumulatedPayloads: { candidates: disc.candidates, heatmapData: hm },
+          };
+        } else if (msg.includes('heatmap') || msg.includes('Heatmap')) {
+          subject.next({ data: { type: 'status', step: 'Calling generate_heatmap...' } });
+          const isCustom = msg.includes('preschools');
+          const isJaksel = msg.includes('jakarta');
+          const hm = await executors.generate_heatmap({
+            region: isJaksel ? 'jakarta selatan' : isCustom ? 'bandung' : 'Kediri',
+            customCategory: isCustom ? 'preschool' : undefined,
+          });
+          return { textResponse: hm.summary, accumulatedPayloads: { heatmapData: hm } };
+        } else if (msg.includes('catchment') || msg.includes('Catchment')) {
+          subject.next({ data: { type: 'status', step: 'Calling catchment_score...' } });
+          const radiusKm = msg.includes('3km') ? 3.0 : 2.0;
+          const cs = await executors.catchment_score({ locationNameOrId: 'Sudirman Branch', radiusKm });
+          return { textResponse: cs.summary, accumulatedPayloads: { catchmentData: cs } };
+        } else if (msg.includes('accessible') || msg.includes('accessibility')) {
+          subject.next({ data: { type: 'status', step: 'Calling accessibility_analysis...' } });
+          const acc = await executors.accessibility_analysis({ locationNameOrId: 'Sudirman Branch', travelMode: 'drive', timeMinutes: 10 });
+          return { textResponse: acc.summary, accumulatedPayloads: { accessibilityData: acc } };
+        } else if (msg.includes('site visit') || msg.includes('Site Visit')) {
+          subject.next({ data: { type: 'status', step: 'Calling ai_site_visit...' } });
+          const sv = await executors.ai_site_visit({ locationNameOrId: 'Sudirman Branch' });
+          return { textResponse: sv.summary, accumulatedPayloads: { siteVisitData: sv } };
+        } else if (msg.includes('Add my coffee shop branch')) {
+          subject.next({ data: { type: 'status', step: 'Calling add_business...' } });
+          const add = await executors.add_business({ businessName: 'Sudirman Coffee', businessType: 'coffee_shop', address: 'Jl. Sudirman No. 10' });
+          return { textResponse: add.summary, accumulatedPayloads: {} };
         }
-        return ['single_tool'];
-      }),
-      executeChain: jest.fn().mockResolvedValue({
-        summary: 'Synthesized multi-tool analysis report for Kediri.',
-        payload: {
-          candidates: [{ rank: 1, name: 'Kediri Spot 1', demandScore: 88 }],
-          heatmapData: { queryId: 'hm-1', points: [] },
-        },
+
+        subject.next({ data: { type: 'status', step: 'Understanding your request...' } });
+        return { textResponse: 'I am your Location Intelligence assistant.', accumulatedPayloads: {} };
       }),
     };
 
@@ -169,6 +201,10 @@ describe('ChatService', () => {
         {
           provide: OrchestratorService,
           useValue: mockOrchestratorService,
+        },
+        {
+          provide: VertexAiOrchestratorService,
+          useValue: mockVertexAiOrchestratorService,
         },
       ],
     }).compile();
@@ -245,7 +281,7 @@ describe('ChatService', () => {
         complete: () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
-          expect(events[0].step).toContain('Add Business/Branch');
+          expect(events[0].step).toContain('add_business');
           done();
         },
       });
@@ -265,7 +301,7 @@ describe('ChatService', () => {
         complete: () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
-          expect(events[0].step).toContain('Heatmap Visualization');
+          expect(events[0].step).toContain('generate_heatmap');
           const messageEvent = events.find((e) => e.type === 'message' && e.heatmapData);
           expect(messageEvent).toBeDefined();
           expect(messageEvent.heatmapData.points.length).toBe(2);
@@ -310,7 +346,7 @@ describe('ChatService', () => {
         complete: () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
-          expect(events[0].step).toContain('Heatmap Visualization');
+          expect(events[0].step).toContain('generate_heatmap');
           const messageEvent = events.find((e) => e.type === 'message' && e.heatmapData);
           expect(messageEvent).toBeDefined();
           expect(messageEvent.heatmapData.region).toBe('jakarta selatan');
@@ -334,7 +370,7 @@ describe('ChatService', () => {
         complete: () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
-          expect(events[0].step).toContain('Catchment Score');
+          expect(events[0].step).toContain('catchment_score');
           const messageEvent = events.find((e) => e.type === 'message' && e.catchmentData);
           expect(messageEvent).toBeDefined();
           expect(messageEvent.catchmentData.compositeScore).toBe(82);
@@ -379,7 +415,7 @@ describe('ChatService', () => {
         complete: () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
-          expect(events[0].step).toContain('Accessibility Analysis');
+          expect(events[0].step).toContain('accessibility_analysis');
           const messageEvent = events.find((e) => e.type === 'message' && e.accessibilityData);
           expect(messageEvent).toBeDefined();
           expect(messageEvent.accessibilityData.compositeScore).toBe(78);
@@ -404,7 +440,7 @@ describe('ChatService', () => {
         complete: () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
-          expect(events[0].step).toContain('AI Site Visit');
+          expect(events[0].step).toContain('ai_site_visit');
           const messageEvent = events.find((e) => e.type === 'message' && e.siteVisitData);
           expect(messageEvent).toBeDefined();
           expect(messageEvent.siteVisitData.overallVisualScore).toBe(85);
@@ -428,7 +464,7 @@ describe('ChatService', () => {
         complete: () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
-          expect(events[0].step).toContain('Orchestrating AI tools');
+          expect(events[0].step).toContain('Calling discover_locations');
           const messageEvent = events.find((e) => e.type === 'message');
           expect(messageEvent).toBeDefined();
           expect(messageEvent.candidates).toBeDefined();
