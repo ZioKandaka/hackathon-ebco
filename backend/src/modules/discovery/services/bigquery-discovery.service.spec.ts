@@ -31,40 +31,27 @@ describe('BigQueryDiscoveryService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('getRelevantDisplayCategoriesForType', () => {
-    it('should return coffee_shop, cafe, bakery for coffee_shop vertical', () => {
-      const cats = service.getRelevantDisplayCategoriesForType('coffee_shop');
-      expect(cats).toEqual(['coffee_shop', 'cafe', 'bakery']);
-    });
-
-    it('should return laundry, dry_cleaning for laundry vertical', () => {
-      const cats = service.getRelevantDisplayCategoriesForType('laundry');
-      expect(cats).toEqual(['laundry', 'dry_cleaning']);
-    });
-
-    it('should fall back to same-category matching for unmapped verticals', () => {
-      const cats = service.getRelevantDisplayCategoriesForType('pharmacy');
-      expect(cats).toEqual(['pharmacy']);
-    });
-  });
-
   describe('queryPoisByRegion', () => {
-    it('should return POIs for a target region', async () => {
-      const pois = await service.queryPoisByRegion('coffee_shop', 'Kediri');
-      expect(pois).toBeDefined();
-      expect(pois.length).toBeGreaterThan(0);
-      expect(pois[0].latitude).toBeDefined();
-      expect(pois[0].longitude).toBeDefined();
+    it('should throw a clear error instead of returning fabricated mock POIs when BigQuery fails', async () => {
+      await expect(service.queryPoisByRegion('coffee_shop', 'Kediri')).rejects.toThrow(
+        /Couldn't fetch location data/,
+      );
     });
   });
 
   describe('queryHeatmapRawPois', () => {
-    it('should return raw spatial POI points for heatmap generation', async () => {
-      const points = await service.queryHeatmapRawPois('Kediri');
-      expect(points).toBeDefined();
-      expect(points.length).toBeGreaterThan(0);
-      expect(points[0].latitude).toBeDefined();
-      expect(points[0].longitude).toBeDefined();
+    it('should throw a clear error instead of returning fabricated mock POIs when BigQuery fails', async () => {
+      await expect(service.queryHeatmapRawPois('Kediri')).rejects.toThrow(
+        /Couldn't fetch heatmap data/,
+      );
+    });
+  });
+
+  describe('queryPoisWithinRadius', () => {
+    it('should throw a clear error instead of returning fabricated mock POIs when BigQuery fails', async () => {
+      await expect(service.queryPoisWithinRadius(-6.2088, 106.8456, 2000)).rejects.toThrow(
+        /Couldn't fetch nearby POI data/,
+      );
     });
   });
 

@@ -13,6 +13,7 @@ export interface DiscoveryCandidateItem {
   competitionCount: number;
   rationale: string;
   regencyCode?: string;
+  businessType: string;
 }
 
 export const useDiscoveryStore = defineStore('discovery', () => {
@@ -100,7 +101,7 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     activePoiCandidateRank.value = candidate.rank;
     nearbyPoiLoading.value = true;
 
-    const targetType = businessType || activeBusinessType.value || 'coffee_shop';
+    const targetType = businessType || candidate.businessType || activeBusinessType.value || 'coffee_shop';
 
     try {
       // 1. Draw 2km catchment circle (Feature 007 reuse)

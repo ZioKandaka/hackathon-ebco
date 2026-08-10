@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DiscoveryService } from './discovery.service';
 import { BigQueryDiscoveryService } from './bigquery-discovery.service';
+import { PoiRelevanceClassifierService } from './poi-relevance-classifier.service';
 
 describe('DiscoveryService', () => {
   let service: DiscoveryService;
   let mockBigQueryService: any;
+  let mockPoiRelevanceClassifierService: any;
 
   beforeEach(async () => {
     mockBigQueryService = {
@@ -15,12 +17,20 @@ describe('DiscoveryService', () => {
       getDemandCategoriesForType: jest.fn().mockReturnValue(['school', 'office']),
     };
 
+    mockPoiRelevanceClassifierService = {
+      classifyRelevantCategories: jest.fn().mockResolvedValue(['coffee_shop', 'cafe', 'bakery']),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DiscoveryService,
         {
           provide: BigQueryDiscoveryService,
           useValue: mockBigQueryService,
+        },
+        {
+          provide: PoiRelevanceClassifierService,
+          useValue: mockPoiRelevanceClassifierService,
         },
       ],
     }).compile();
@@ -41,6 +51,36 @@ describe('DiscoveryService', () => {
       expect(candidates[0].rank).toBe(1);
       expect(candidates[0].demandScore).toBeGreaterThan(0);
       expect(candidates[0].rationale).toBeDefined();
+    });
+  });
+
+  describe('getNearbyPoisForCandidate', () => {
+    it('should filter POIs using categories from the Vertex AI relevance classifier', async () => {
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([
+        { id: 'p1', name: 'Kopi Kenangan', category: 'coffee_shop', latitude: -6.2088, longitude: 106.8456 },
+      ]);
+
+      const pois = await service.getNearbyPoisForCandidate(-6.2088, 106.8456, 'coffee_shop', 2000);
+
+      expect(mockPoiRelevanceClassifierService.classifyRelevantCategories).toHaveBeenCalledWith('coffee_shop');
+      expect(mockBigQueryService.queryPoisWithinRadius).toHaveBeenCalledWith(
+        -6.2088,
+        106.8456,
+        2000,
+        undefined,
+        ['coffee_shop', 'cafe', 'bakery'],
+      );
+      expect(pois.length).toBe(1);
+    });
+
+    it('should return no POIs (without querying BigQuery) when no category is genuinely relevant', async () => {
+      mockPoiRelevanceClassifierService.classifyRelevantCategories.mockResolvedValueOnce([]);
+      mockBigQueryService.queryPoisWithinRadius = jest.fn();
+
+      const pois = await service.getNearbyPoisForCandidate(-6.2088, 106.8456, 'laundry', 2000);
+
+      expect(pois).toEqual([]);
+      expect(mockBigQueryService.queryPoisWithinRadius).not.toHaveBeenCalled();
     });
   });
 

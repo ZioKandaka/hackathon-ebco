@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BigQueryDiscoveryService, RawPoiItem } from './bigquery-discovery.service';
+import { PoiRelevanceClassifierService } from './poi-relevance-classifier.service';
 
 export interface DiscoveryCandidate {
   rank: number;
@@ -10,6 +11,7 @@ export interface DiscoveryCandidate {
   competitionCount: number;
   rationale: string;
   regencyCode?: string;
+  businessType: string;
 }
 
 export interface WeightedHeatmapPoint {
@@ -44,7 +46,10 @@ export interface AccessibilityCalculationResult {
 
 @Injectable()
 export class DiscoveryService {
-  constructor(private readonly bigqueryDiscoveryService: BigQueryDiscoveryService) {}
+  constructor(
+    private readonly bigqueryDiscoveryService: BigQueryDiscoveryService,
+    private readonly poiRelevanceClassifierService: PoiRelevanceClassifierService,
+  ) {}
 
   async searchCandidates(
     businessType: string,
@@ -80,6 +85,7 @@ export class DiscoveryService {
           competitionCount,
           rationale,
           regencyCode: poi.regencyCode || '3506',
+          businessType,
         };
       });
 
@@ -92,7 +98,12 @@ export class DiscoveryService {
     businessType: string,
     radiusMeters = 2000,
   ): Promise<any[]> {
-    const relevantCategories = this.bigqueryDiscoveryService.getRelevantDisplayCategoriesForType(businessType);
+    const relevantCategories = await this.poiRelevanceClassifierService.classifyRelevantCategories(businessType);
+
+    if (relevantCategories.length === 0) {
+      return [];
+    }
+
     return this.bigqueryDiscoveryService.queryPoisWithinRadius(
       lat,
       lng,

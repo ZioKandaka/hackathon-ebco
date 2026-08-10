@@ -385,6 +385,13 @@ export class ChatService {
       count,
     );
 
+    if (candidates.length === 0) {
+      return {
+        candidates: [],
+        summary: `No strong candidate spots found matching low-competition criteria for ${args.businessType} in ${args.region}. Try broadening the target area.`,
+      };
+    }
+
     const formattedList = candidates
       .map(
         (c) =>

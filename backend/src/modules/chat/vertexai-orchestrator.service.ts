@@ -12,6 +12,8 @@ export interface ToolCallExecutionMap {
   ai_site_visit?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string }) => Promise<any>;
 }
 
+class ToolExecutionError extends Error {}
+
 export interface OrchestrationResult {
   textResponse: string;
   accumulatedPayloads: {
@@ -127,28 +129,35 @@ If no tool is needed, respond directly in plain text.`;
               await new Promise((resolve) => setTimeout(resolve, 300));
 
               let toolResult: any = { status: 'success' };
-              if (toolName === 'add_business' && executors.add_business) {
-                toolResult = await executors.add_business(args);
-              } else if (toolName === 'discover_locations' && executors.discover_locations) {
-                const res = await executors.discover_locations(args);
-                accumulatedPayloads.candidates = res.candidates || res;
-                toolResult = res;
-              } else if (toolName === 'generate_heatmap' && executors.generate_heatmap) {
-                const res = await executors.generate_heatmap(args);
-                accumulatedPayloads.heatmapData = res;
-                toolResult = res;
-              } else if (toolName === 'catchment_score' && executors.catchment_score) {
-                const res = await executors.catchment_score(args);
-                accumulatedPayloads.catchmentData = res;
-                toolResult = res;
-              } else if (toolName === 'accessibility_analysis' && executors.accessibility_analysis) {
-                const res = await executors.accessibility_analysis(args);
-                accumulatedPayloads.accessibilityData = res;
-                toolResult = res;
-              } else if (toolName === 'ai_site_visit' && executors.ai_site_visit) {
-                const res = await executors.ai_site_visit(args);
-                accumulatedPayloads.siteVisitData = res;
-                toolResult = res;
+              try {
+                if (toolName === 'add_business' && executors.add_business) {
+                  toolResult = await executors.add_business(args);
+                } else if (toolName === 'discover_locations' && executors.discover_locations) {
+                  const res = await executors.discover_locations(args);
+                  accumulatedPayloads.candidates = res.candidates || res;
+                  toolResult = res;
+                } else if (toolName === 'generate_heatmap' && executors.generate_heatmap) {
+                  const res = await executors.generate_heatmap(args);
+                  accumulatedPayloads.heatmapData = res;
+                  toolResult = res;
+                } else if (toolName === 'catchment_score' && executors.catchment_score) {
+                  const res = await executors.catchment_score(args);
+                  accumulatedPayloads.catchmentData = res;
+                  toolResult = res;
+                } else if (toolName === 'accessibility_analysis' && executors.accessibility_analysis) {
+                  const res = await executors.accessibility_analysis(args);
+                  accumulatedPayloads.accessibilityData = res;
+                  toolResult = res;
+                } else if (toolName === 'ai_site_visit' && executors.ai_site_visit) {
+                  const res = await executors.ai_site_visit(args);
+                  accumulatedPayloads.siteVisitData = res;
+                  toolResult = res;
+                }
+              } catch (toolErr: any) {
+                // A tool execution failure (e.g. no data found) is a real error the user must
+                // see — it must not be swallowed and silently replaced by the heuristic fallback
+                // below, which would re-run with unrelated hardcoded args and hide the real cause.
+                throw new ToolExecutionError(toolErr.message || 'Tool execution failed.');
               }
 
               contents.push(responseCandidates[0].content);
@@ -170,6 +179,9 @@ If no tool is needed, respond directly in plain text.`;
           }
         }
       } catch (err: any) {
+        if (err instanceof ToolExecutionError) {
+          throw err;
+        }
         this.logger.warn(`Vertex AI generative execution fallback note: ${err.message}`);
       }
     }
