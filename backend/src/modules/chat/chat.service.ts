@@ -7,6 +7,7 @@ import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
+import { OrchestratorService } from './orchestrator.service';
 
 export interface HeatmapPoint {
   lat: number;
@@ -99,6 +100,7 @@ export class ChatService {
     private readonly locationsService: LocationsService,
     private readonly discoveryService: DiscoveryService,
     private readonly siteVisitService: SiteVisitService,
+    private readonly orchestratorService: OrchestratorService,
   ) {}
 
   async getHistory(userId: string): Promise<ChatMessage[]> {
@@ -128,6 +130,46 @@ export class ChatService {
     setTimeout(async () => {
       try {
         await this.saveMessage(userId, MessageSender.USER, userMessage);
+
+        const plannedTools = this.orchestratorService.planExecution(userMessage);
+
+        if (plannedTools.length > 1) {
+          subject.next({
+            data: {
+              type: 'status',
+              step: `Orchestrating AI tools (${plannedTools.join(' → ')})...`,
+              timestamp: new Date().toISOString(),
+            },
+          });
+
+          await new Promise((resolve) => setTimeout(resolve, 300));
+
+          const result = await this.orchestratorService.executeChain(
+            userId,
+            userMessage,
+            plannedTools,
+            subject,
+          );
+
+          await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+
+          subject.next({
+            data: {
+              type: 'message',
+              content: result.summary,
+              candidates: result.payload.candidates,
+              heatmapData: result.payload.heatmapData,
+              catchmentData: result.payload.catchmentData,
+              accessibilityData: result.payload.accessibilityData,
+              siteVisitData: result.payload.siteVisitData,
+              timestamp: new Date().toISOString(),
+            },
+          });
+
+          subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+          subject.complete();
+          return;
+        }
 
         const lowerMsg = userMessage.toLowerCase();
         const isSiteVisitIntent =

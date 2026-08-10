@@ -6,6 +6,7 @@ import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
+import { OrchestratorService } from './orchestrator.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -14,6 +15,7 @@ describe('ChatService', () => {
   let mockLocationsService: any;
   let mockDiscoveryService: any;
   let mockSiteVisitService: any;
+  let mockOrchestratorService: any;
 
   beforeEach(async () => {
     mockRepository = {
@@ -125,6 +127,22 @@ describe('ChatService', () => {
       }),
     };
 
+    mockOrchestratorService = {
+      planExecution: jest.fn().mockImplementation((msg: string) => {
+        if (msg.includes('Find coffee shop candidates') && msg.includes('heatmap')) {
+          return ['discover', 'heatmap'];
+        }
+        return ['single_tool'];
+      }),
+      executeChain: jest.fn().mockResolvedValue({
+        summary: 'Synthesized multi-tool analysis report for Kediri.',
+        payload: {
+          candidates: [{ rank: 1, name: 'Kediri Spot 1', demandScore: 88 }],
+          heatmapData: { queryId: 'hm-1', points: [] },
+        },
+      }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChatService,
@@ -147,6 +165,10 @@ describe('ChatService', () => {
         {
           provide: SiteVisitService,
           useValue: mockSiteVisitService,
+        },
+        {
+          provide: OrchestratorService,
+          useValue: mockOrchestratorService,
         },
       ],
     }).compile();
@@ -387,6 +409,30 @@ describe('ChatService', () => {
           expect(messageEvent).toBeDefined();
           expect(messageEvent.siteVisitData.overallVisualScore).toBe(85);
           expect(messageEvent.siteVisitData.images.satelliteUrl).toBeDefined();
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should execute multi-tool orchestration chain for complex prompts (Discover + Heatmap)', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'Find coffee shop candidates in Kediri and show a heatmap for minimarket density';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          expect(events[0].type).toBe('status');
+          expect(events[0].step).toContain('Orchestrating AI tools');
+          const messageEvent = events.find((e) => e.type === 'message');
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.candidates).toBeDefined();
+          expect(messageEvent.heatmapData).toBeDefined();
           done();
         },
       });
