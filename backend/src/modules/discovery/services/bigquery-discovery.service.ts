@@ -332,13 +332,13 @@ export class BigQueryDiscoveryService {
 
         const query = `
           SELECT 
-            COALESCE(poi_name, brand_name, name, 'POI Location') as name,
+            poi_name as name,
             poi_id as id,
             poi_type as category,
             latitude,
             longitude,
             rating,
-            user_ratings_total as userRatingsTotal,
+            user_rating_count as userRatingsTotal,
             business_status as businessStatus,
             ST_DISTANCE(ST_GEOGPOINT(longitude, latitude), ST_GEOGPOINT(@lng, @lat)) as distanceMeters
           FROM \`${this.datasetName}\`
@@ -354,7 +354,7 @@ export class BigQueryDiscoveryService {
             category: r.category || 'general',
             latitude: Number(r.latitude),
             longitude: Number(r.longitude),
-            distanceMeters: Number(r.distanceMeters || 0),
+            distanceMeters: Number(Math.floor(r.distanceMeters) || 0),
             rating: r.rating ? Number(r.rating) : 4.0,
             userRatingsTotal: r.userRatingsTotal ? Number(r.userRatingsTotal) : 10,
             businessStatus: r.businessStatus || 'OPERATIONAL',
