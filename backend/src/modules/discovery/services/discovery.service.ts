@@ -86,6 +86,22 @@ export class DiscoveryService {
     return candidates;
   }
 
+  async getNearbyPoisForCandidate(
+    lat: number,
+    lng: number,
+    businessType: string,
+    radiusMeters = 2000,
+  ): Promise<any[]> {
+    const relevantCategories = this.bigqueryDiscoveryService.getRelevantDisplayCategoriesForType(businessType);
+    return this.bigqueryDiscoveryService.queryPoisWithinRadius(
+      lat,
+      lng,
+      radiusMeters,
+      undefined,
+      relevantCategories,
+    );
+  }
+
   async generateHeatmapDataset(options: {
     mode: 'business_based' | 'custom_prompt';
     businessType?: string;

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { apiClient } from '../services/api.service';
 import { useGoogleMap } from '../composables/useGoogleMap';
+import { googleMapService } from '../services/google-map.service';
 
 export interface DiscoveryCandidateItem {
   rank: number;
@@ -20,11 +21,18 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
 
+  const activeBusinessType = ref<string>('coffee_shop');
+  const activePoiCandidateRank = ref<number | null>(null);
+  const nearbyPois = ref<any[]>([]);
+  const nearbyPoiLoading = ref(false);
+
   const { addMarker, clearMarkers, setCenter } = useGoogleMap();
 
   async function searchCandidates(businessType: string, region: string) {
+    activeBusinessType.value = businessType;
     loading.value = true;
     error.value = null;
+    clearNearbyPois();
     try {
       const response = await apiClient.post<{ candidates: DiscoveryCandidateItem[] }>(
         '/discovery/search',
@@ -42,6 +50,7 @@ export const useDiscoveryStore = defineStore('discovery', () => {
   }
 
   function setCandidates(items: DiscoveryCandidateItem[]) {
+    clearNearbyPois();
     candidates.value = items;
     renderCandidatePins();
   }
@@ -81,15 +90,66 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     selectedCandidate.value = null;
   }
 
+  async function toggleNearbyPois(candidate: DiscoveryCandidateItem, businessType?: string) {
+    if (activePoiCandidateRank.value === candidate.rank) {
+      clearNearbyPois();
+      return;
+    }
+
+    clearNearbyPois();
+    activePoiCandidateRank.value = candidate.rank;
+    nearbyPoiLoading.value = true;
+
+    const targetType = businessType || activeBusinessType.value || 'coffee_shop';
+
+    try {
+      // 1. Draw 2km catchment circle (Feature 007 reuse)
+      googleMapService.renderCatchmentCircle(
+        { lat: Number(candidate.latitude), lng: Number(candidate.longitude) },
+        2000,
+        { fitBounds: true },
+      );
+
+      // 2. Query nearby relevant POIs
+      const response = await apiClient.post<{ pois: any[] }>('/discovery/nearby-pois', {
+        lat: Number(candidate.latitude),
+        lng: Number(candidate.longitude),
+        businessType: targetType,
+        radiusMeters: 2000,
+      });
+
+      nearbyPois.value = response.data.pois || [];
+
+      // 3. Render cyan POI markers with InfoWindow hover tooltips
+      googleMapService.renderNearbyPoiMarkers(nearbyPois.value);
+    } catch (err: any) {
+      console.warn('Failed to fetch nearby POIs:', err);
+    } finally {
+      nearbyPoiLoading.value = false;
+    }
+  }
+
+  function clearNearbyPois() {
+    activePoiCandidateRank.value = null;
+    nearbyPois.value = [];
+    googleMapService.removeCatchmentCircle();
+    googleMapService.clearNearbyPoiMarkers();
+  }
+
   return {
     candidates,
     selectedCandidate,
     loading,
     error,
+    activePoiCandidateRank,
+    nearbyPois,
+    nearbyPoiLoading,
     setCandidates,
     searchCandidates,
     renderCandidatePins,
     selectCandidate,
     clearSelectedCandidate,
+    toggleNearbyPois,
+    clearNearbyPois,
   };
 });

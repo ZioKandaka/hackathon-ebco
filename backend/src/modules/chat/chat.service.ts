@@ -92,6 +92,21 @@ export interface ChatStreamEvent {
   timestamp: string;
 }
 
+export interface LocationArgs {
+  locationNameOrId?: string;
+  latitude?: number;
+  longitude?: number;
+  address?: string;
+}
+
+export interface ResolvedLocation {
+  id?: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  businessType?: string;
+}
+
 @Injectable()
 export class ChatService {
   constructor(
@@ -190,17 +205,17 @@ export class ChatService {
 
   async executeSiteVisitSkill(
     userId: string,
-    args: { locationNameOrId: string },
+    args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string },
     userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
   ): Promise<any> {
-    const matchedLocation = this.resolveLocation(args.locationNameOrId, userLocations);
+    const matchedLocation = await this.resolveLocationContext(args, userLocations);
 
     if (!matchedLocation) {
       const availableNames = userLocations.map((l) => l.name).join(', ');
       const summary = userLocations.length === 0
-        ? "You don't have any registered business locations in your account yet. You can add one by telling me e.g. 'Add my Sudirman Coffee branch at Jl. Sudirman No. 10'."
-        : `I couldn't find a matching saved location for "${args.locationNameOrId}". Your saved locations are: ${availableNames}.`;
+        ? "Which location would you like me to inspect? You can specify a saved location name, a candidate spot, a street address, or coordinates."
+        : `I couldn't locate "${args.locationNameOrId || args.address || 'that location'}". Your saved locations are: ${availableNames}. Please specify a saved location, candidate spot, or full street address!`;
       return { summary };
     }
 
@@ -227,17 +242,17 @@ export class ChatService {
 
   async executeAccessibilitySkill(
     userId: string,
-    args: { locationNameOrId: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number },
+    args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number },
     userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
   ): Promise<any> {
-    const matchedLocation = this.resolveLocation(args.locationNameOrId, userLocations);
+    const matchedLocation = await this.resolveLocationContext(args, userLocations);
 
     if (!matchedLocation) {
       const availableNames = userLocations.map((l) => l.name).join(', ');
       const summary = userLocations.length === 0
-        ? "You don't have any registered business locations in your account yet. You can add one by telling me e.g. 'Add my Sudirman Coffee branch at Jl. Sudirman No. 10'."
-        : `I couldn't find a matching saved location for "${args.locationNameOrId}". Your saved locations are: ${availableNames}.`;
+        ? "Which location would you like to analyze for accessibility? You can specify a saved location name, a candidate spot, a street address, or coordinates."
+        : `I couldn't locate "${args.locationNameOrId || args.address || 'that location'}". Your saved locations are: ${availableNames}. Please specify a saved location, candidate spot, or full street address!`;
       return { summary };
     }
 
@@ -268,7 +283,7 @@ export class ChatService {
     const analysisId = `acc-${Date.now().toString(36)}`;
     const accessibilityData: AccessibilityDataPayload = {
       analysisId,
-      locationId: matchedLocation.id,
+      locationId: matchedLocation.id || 'adhoc-loc',
       locationName: matchedLocation.name,
       travelMode,
       timeMinutes,
@@ -285,17 +300,17 @@ export class ChatService {
 
   async executeCatchmentSkill(
     userId: string,
-    args: { locationNameOrId: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean },
+    args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean },
     userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
   ): Promise<any> {
-    const matchedLocation = this.resolveLocation(args.locationNameOrId, userLocations);
+    const matchedLocation = await this.resolveLocationContext(args, userLocations);
 
     if (!matchedLocation) {
       const availableNames = userLocations.map((l) => l.name).join(', ');
       const summary = userLocations.length === 0
-        ? "You don't have any registered business locations in your account yet. You can add one by telling me e.g. 'Add my Sudirman Coffee branch at Jl. Sudirman No. 10'."
-        : `I couldn't find a matching saved location for "${args.locationNameOrId}". Your saved locations are: ${availableNames}.`;
+        ? "Which location would you like to analyze for catchment score? You can specify a saved location name, a candidate spot, a street address, or coordinates."
+        : `I couldn't locate "${args.locationNameOrId || args.address || 'that location'}". Your saved locations are: ${availableNames}. Please specify a saved location, candidate spot, or full street address!`;
       return { summary };
     }
 
@@ -316,7 +331,7 @@ export class ChatService {
     const analysisId = `cs-${Date.now().toString(36)}`;
     const catchmentData: CatchmentDataPayload = {
       analysisId,
-      locationId: matchedLocation.id,
+      locationId: matchedLocation.id || 'adhoc-loc',
       locationName: matchedLocation.name,
       radiusKm,
       compositeScore: result.compositeScore,
@@ -371,7 +386,10 @@ export class ChatService {
     );
 
     const formattedList = candidates
-      .map((c) => `Spot ${c.rank}: ${c.name} (Score: ${c.demandScore}/100)\n  • ${c.rationale}`)
+      .map(
+        (c) =>
+          `Spot ${c.rank}: ${c.name} (Score: ${c.demandScore}/100, Latitude: ${c.latitude}, Longitude: ${c.longitude}, Competition: ${c.competitionCount})\n  • Rationale: ${c.rationale}`,
+      )
       .join('\n\n');
 
     const resultMessage = `Here are the top candidate spots for ${args.businessType} in ${args.region}:\n\n${formattedList}\n\nPins have been rendered on your map. Click any pin to inspect details.`;
@@ -414,20 +432,70 @@ export class ChatService {
     };
   }
 
-  private resolveLocation(locationNameOrId: string, userLocations: any[]): any | null {
-    if (!userLocations || userLocations.length === 0) return null;
-    if (!locationNameOrId) return userLocations[0];
+  private async resolveLocationContext(
+    args: LocationArgs,
+    userLocations: any[],
+  ): Promise<ResolvedLocation | null> {
+    // a. Direct latitude & longitude provided (e.g. candidate spot coordinates from previous turn)
+    if (args.latitude !== undefined && args.longitude !== undefined) {
+      return {
+        name: args.locationNameOrId || `Site (${Number(args.latitude).toFixed(4)}, ${Number(args.longitude).toFixed(4)})`,
+        latitude: Number(args.latitude),
+        longitude: Number(args.longitude),
+        businessType: 'business',
+      };
+    }
 
-    const target = locationNameOrId.toLowerCase();
+    // b. locationNameOrId provided -> resolve against saved userLocations
+    if (args.locationNameOrId) {
+      const target = args.locationNameOrId.toLowerCase();
+      if (userLocations && userLocations.length > 0) {
+        const byId = userLocations.find((l) => l.id === args.locationNameOrId);
+        if (byId) {
+          return {
+            id: byId.id,
+            name: byId.name,
+            latitude: Number(byId.latitude),
+            longitude: Number(byId.longitude),
+            businessType: byId.businessType,
+          };
+        }
 
-    const byId = userLocations.find((l) => l.id === locationNameOrId);
-    if (byId) return byId;
+        const byName = userLocations.find(
+          (l) =>
+            l.name &&
+            (l.name.toLowerCase() === target ||
+              target.includes(l.name.toLowerCase()) ||
+              l.name.toLowerCase().includes(target)),
+        );
+        if (byName) {
+          return {
+            id: byName.id,
+            name: byName.name,
+            latitude: Number(byName.latitude),
+            longitude: Number(byName.longitude),
+            businessType: byName.businessType,
+          };
+        }
+      }
+    }
 
-    const byName = userLocations.find(
-      (l) => l.name && (l.name.toLowerCase() === target || target.includes(l.name.toLowerCase()) || l.name.toLowerCase().includes(target)),
-    );
-    if (byName) return byName;
+    // c. Freeform address provided -> geocode on the fly without saving
+    const addressToGeocode = args.address || (args.locationNameOrId && !args.latitude ? args.locationNameOrId : null);
+    if (addressToGeocode) {
+      const geocoded = await this.geocodingService.geocodeAddress(addressToGeocode);
+      if (geocoded && geocoded.length > 0) {
+        const first = geocoded[0];
+        return {
+          name: first.formattedAddress,
+          latitude: Number(first.latitude),
+          longitude: Number(first.longitude),
+          businessType: 'business',
+        };
+      }
+    }
 
-    return userLocations[0] || null;
+    // d. If none resolve, return null (triggers clarifying question)
+    return null;
   }
 }

@@ -7,9 +7,9 @@ export interface ToolCallExecutionMap {
   add_business?: (args: { businessName: string; businessType: string; address: string }) => Promise<any>;
   discover_locations?: (args: { businessType: string; region: string; count?: number }) => Promise<any>;
   generate_heatmap?: (args: { region: string; businessType?: string; customCategory?: string; maxRating?: number }) => Promise<any>;
-  catchment_score?: (args: { locationNameOrId: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean }) => Promise<any>;
-  accessibility_analysis?: (args: { locationNameOrId: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number }) => Promise<any>;
-  ai_site_visit?: (args: { locationNameOrId: string }) => Promise<any>;
+  catchment_score?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean }) => Promise<any>;
+  accessibility_analysis?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number }) => Promise<any>;
+  ai_site_visit?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string }) => Promise<any>;
 }
 
 export interface OrchestrationResult {
@@ -57,15 +57,42 @@ export class VertexAiOrchestratorService {
     const systemContext = `You are a Location Intelligence AI assistant.
 User's saved account locations: [${savedLocationNames}].
 Use available tools when the user's message implies location analysis, candidate discovery, heatmap visualization, catchment scoring, accessibility travel time analysis, AI site visit visual check, or adding a business branch.
+When the user refers to a previously discovered candidate spot (e.g. 'spot 2' or candidate name), use its latitude/longitude from the earlier conversation turn directly as the latitude/longitude arguments for catchment_score, accessibility_analysis, or ai_site_visit — do not assume it is a saved business location.
 If required arguments for a tool are missing, ask the user a clarifying question in plain text.
 If no tool is needed, respond directly in plain text.`;
 
     // Try Vertex AI function calling loop
     if (this.model) {
       try {
-        const contents: any[] = [
-          { role: 'user', parts: [{ text: `${systemContext}\n\nUser prompt: ${userMessage}` }] },
-        ];
+        const contents: any[] = [];
+
+        if (history && history.length > 0) {
+          const recentHistory = history.slice(-20);
+          for (let i = 0; i < recentHistory.length; i++) {
+            const item = recentHistory[i];
+            if (!item.content || !item.content.trim()) continue;
+            const role = item.sender === 'user' ? 'user' : 'model';
+
+            let text = item.content;
+            if (i === 0) {
+              text = `${systemContext}\n\n[Prior message]: ${text}`;
+            }
+
+            contents.push({
+              role,
+              parts: [{ text }],
+            });
+          }
+        }
+
+        const lastContent = contents[contents.length - 1];
+        if (!lastContent || lastContent.role !== 'user' || lastContent.parts[0]?.text !== userMessage) {
+          const text = contents.length === 0 ? `${systemContext}\n\nUser prompt: ${userMessage}` : userMessage;
+          contents.push({
+            role: 'user',
+            parts: [{ text }],
+          });
+        }
 
         let loopCount = 0;
         const maxLoops = 5;

@@ -53,4 +53,15 @@ describe('useGoogleMap', () => {
       expect(() => googleMapService.setCenterAndZoom({ lat: -6.2088, lng: 106.8456 }, 17)).not.toThrow();
     });
   });
+
+  describe('googleMapService nearby POI markers and tooltips', () => {
+    it('should provide renderNearbyPoiMarkers and clearNearbyPoiMarkers methods', () => {
+      expect(typeof googleMapService.renderNearbyPoiMarkers).toBe('function');
+      expect(typeof googleMapService.clearNearbyPoiMarkers).toBe('function');
+    });
+
+    it('should safely execute clearNearbyPoiMarkers when no markers exist', () => {
+      expect(() => googleMapService.clearNearbyPoiMarkers()).not.toThrow();
+    });
+  });
 });

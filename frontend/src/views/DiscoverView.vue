@@ -28,6 +28,58 @@
           </div>
           <p class="spot-name">{{ spot.name }}</p>
           <p class="rationale-text">{{ spot.rationale }}</p>
+
+          <!-- Show Nearby POI Toggle Button (US1) -->
+          <div class="card-actions">
+            <button
+              class="btn-nearby-poi"
+              :class="{ active: discoveryStore.activePoiCandidateRank === spot.rank }"
+              @click.stop="discoveryStore.toggleNearbyPois(spot)"
+            >
+              <span v-if="discoveryStore.nearbyPoiLoading && discoveryStore.activePoiCandidateRank === spot.rank">
+                Loading POIs...
+              </span>
+              <span v-else-if="discoveryStore.activePoiCandidateRank === spot.rank">
+                Hide Nearby POI
+              </span>
+              <span v-else>
+                Show Nearby POI
+              </span>
+            </button>
+          </div>
+
+          <!-- Zero POI Notice (T014) -->
+          <div
+            v-if="discoveryStore.activePoiCandidateRank === spot.rank && !discoveryStore.nearbyPoiLoading && discoveryStore.nearbyPois.length === 0"
+            class="zero-poi-notice"
+          >
+            No relevant nearby POIs found within 2km.
+          </div>
+
+          <!-- Nearby POIs List with Names & Metrics -->
+          <div
+            v-if="discoveryStore.activePoiCandidateRank === spot.rank && discoveryStore.nearbyPois.length > 0"
+            class="nearby-poi-box"
+          >
+            <div class="nearby-box-title">
+              Nearby POIs ({{ discoveryStore.nearbyPois.length }} within 2km):
+            </div>
+            <ul class="nearby-poi-list">
+              <li
+                v-for="poi in discoveryStore.nearbyPois.slice(0, 6)"
+                :key="poi.id"
+                class="nearby-poi-row"
+              >
+                <span class="poi-name">{{ poi.name }}</span>
+                <span class="poi-meta">
+                  ★ {{ poi.rating || '4.0' }} • {{ poi.distanceMeters }}m
+                </span>
+              </li>
+            </ul>
+            <div v-if="discoveryStore.nearbyPois.length > 6" class="nearby-more-text">
+              + {{ discoveryStore.nearbyPois.length - 6 }} more pins on map
+            </div>
+          </div>
         </li>
       </ul>
     </div>
@@ -170,6 +222,95 @@ h1 {
   font-size: 0.8125rem;
   color: #4a5568;
   line-height: 1.4;
+}
+
+.card-actions {
+  margin-top: 0.625rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-nearby-poi {
+  background-color: #e6fffa;
+  color: #2c7a7b;
+  border: 1px solid #319795;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-nearby-poi:hover,
+.btn-nearby-poi.active {
+  background-color: #319795;
+  color: #ffffff;
+}
+
+.zero-poi-notice {
+  margin-top: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  background-color: #fffaf0;
+  border: 1px solid #feebc8;
+  border-radius: 4px;
+  color: #dd6b20;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.nearby-poi-box {
+  margin-top: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  background-color: #f7fafc;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.nearby-box-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #2c7a7b;
+  margin-bottom: 0.375rem;
+}
+
+.nearby-poi-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.nearby-poi-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.poi-name {
+  font-weight: 600;
+  color: #2d3748;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 170px;
+}
+
+.poi-meta {
+  color: #718096;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+
+.nearby-more-text {
+  margin-top: 0.375rem;
+  font-size: 0.6875rem;
+  color: #319795;
+  font-weight: 600;
+  text-align: right;
 }
 
 /* Detail Modal */

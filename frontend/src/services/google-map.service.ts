@@ -57,6 +57,8 @@ class GoogleMapService {
 
   private markers = new Map<string, google.maps.Marker>();
   private polygons = new Map<string, google.maps.Polygon>();
+  private nearbyPoiMarkers: google.maps.Marker[] = [];
+  private poiInfoWindow: google.maps.InfoWindow | null = null;
   private activeHeatmapLayer: google.maps.visualization.HeatmapLayer | null = null;
   private fallbackHeatmapCircles: google.maps.Circle[] = [];
   private activeCatchmentCircle: google.maps.Circle | null = null;
@@ -424,8 +426,82 @@ class GoogleMapService {
     return polygon;
   }
 
+  clearNearbyPoiMarkers(): void {
+    if (this.poiInfoWindow) {
+      this.poiInfoWindow.close();
+      this.poiInfoWindow = null;
+    }
+    this.nearbyPoiMarkers.forEach((marker) => marker.setMap(null));
+    this.nearbyPoiMarkers = [];
+  }
+
+  renderNearbyPoiMarkers(pois: Array<{ id: string; name: string; category: string; latitude: number; longitude: number; rating?: number; userRatingsTotal?: number; businessStatus?: string; distanceMeters?: number }>): void {
+    this.clearNearbyPoiMarkers();
+
+    if (!this.map || !window.google?.maps || !pois || pois.length === 0) return;
+
+    this.poiInfoWindow = new google.maps.InfoWindow();
+
+    const cyanIcon: google.maps.Symbol = {
+      path: google.maps.SymbolPath.CIRCLE,
+      fillColor: '#00B5D8',
+      fillOpacity: 1.0,
+      strokeColor: '#FFFFFF',
+      strokeWeight: 2,
+      scale: 8,
+    };
+
+    const bounds = new google.maps.LatLngBounds();
+
+    this.nearbyPoiMarkers = pois.map((poi) => {
+      const position = { lat: Number(poi.latitude), lng: Number(poi.longitude) };
+      bounds.extend(position);
+
+      const marker = new google.maps.Marker({
+        position,
+        map: this.map,
+        title: poi.name,
+        icon: cyanIcon,
+        zIndex: 500,
+      });
+
+      const ratingText = poi.rating ? `★ ${poi.rating} (${poi.userRatingsTotal || 0} reviews)` : 'No rating';
+      const statusText = poi.businessStatus || 'OPERATIONAL';
+      const catText = (poi.category || '').replace(/_/g, ' ').toUpperCase();
+      const distText = poi.distanceMeters ? ` • ${poi.distanceMeters}m away` : '';
+
+      const contentString = `
+        <div style="padding: 4px 6px; font-family: system-ui; color: #1a202c; max-width: 220px;">
+          <div style="font-weight: 700; font-size: 13px; margin-bottom: 2px;">${poi.name}</div>
+          <div style="font-size: 11px; color: #319795; font-weight: 600; margin-bottom: 2px;">${catText}${distText}</div>
+          <div style="font-size: 11px; color: #718096;">${ratingText} • <span style="color: ${statusText === 'OPERATIONAL' ? '#38A169' : '#E53E3E'}">${statusText}</span></div>
+        </div>
+      `;
+
+      marker.addListener('mouseover', () => {
+        if (this.poiInfoWindow && this.map) {
+          this.poiInfoWindow.setContent(contentString);
+          this.poiInfoWindow.open(this.map, marker);
+        }
+      });
+
+      marker.addListener('mouseout', () => {
+        if (this.poiInfoWindow) {
+          this.poiInfoWindow.close();
+        }
+      });
+
+      return marker;
+    });
+
+    if (pois.length > 0 && this.map) {
+      this.map.fitBounds(bounds);
+    }
+  }
+
   clearAllLayers(): void {
     this.clearMarkers();
+    this.clearNearbyPoiMarkers();
     this.removeHeatmap();
     this.removeCatchmentCircle();
     this.removeIsochronePolygon();

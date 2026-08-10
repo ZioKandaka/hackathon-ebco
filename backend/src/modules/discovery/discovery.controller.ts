@@ -32,4 +32,25 @@ export class DiscoveryController {
       candidates,
     };
   }
+
+  @Post('nearby-pois')
+  @HttpCode(HttpStatus.OK)
+  async getNearbyPois(
+    @Body() dto: { lat: number; lng: number; businessType: string; radiusMeters?: number },
+  ) {
+    const pois = await this.discoveryService.getNearbyPoisForCandidate(
+      dto.lat,
+      dto.lng,
+      dto.businessType,
+      dto.radiusMeters || 2000,
+    );
+
+    return {
+      lat: dto.lat,
+      lng: dto.lng,
+      businessType: dto.businessType,
+      radiusMeters: dto.radiusMeters || 2000,
+      pois,
+    };
+  }
 }

@@ -43,29 +43,33 @@ export const toolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'catchment_score',
-    description: 'Calculate composite catchment score (0-100) and 6 sub-scores for a user saved business location within a radius.',
+    description: 'Calculate composite catchment score (0-100) and 6 sub-scores for a location (saved location name, explicit lat/lng coordinates, or street address).',
     parameters: {
       type: FunctionDeclarationSchemaType.OBJECT,
       properties: {
-        locationNameOrId: { type: FunctionDeclarationSchemaType.STRING, description: 'Name or ID of the user saved location branch' },
+        locationNameOrId: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional name or ID of a saved location or candidate spot' },
+        latitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit latitude coordinate of candidate or site' },
+        longitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit longitude coordinate of candidate or site' },
+        address: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional freeform street address to analyze on the fly' },
         radiusKm: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional analysis radius in kilometers (default 2.0; max 10.0)' },
         ignoreCompetition: { type: FunctionDeclarationSchemaType.BOOLEAN, description: 'Optional flag to ignore competition density penalty in scoring' },
         ignoreSaturation: { type: FunctionDeclarationSchemaType.BOOLEAN, description: 'Optional flag to ignore network saturation penalty in scoring' },
       },
-      required: ['locationNameOrId'],
     },
   },
   {
     name: 'accessibility_analysis',
-    description: 'Evaluate a location catchment using real road network travel time (isochrone) for driving, walking, or transit.',
+    description: 'Evaluate location catchment using real road network travel time (isochrone) for driving, walking, or transit.',
     parameters: {
       type: FunctionDeclarationSchemaType.OBJECT,
       properties: {
-        locationNameOrId: { type: FunctionDeclarationSchemaType.STRING, description: 'Name or ID of the user saved location branch or candidate spot' },
+        locationNameOrId: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional name or ID of a saved location or candidate spot' },
+        latitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit latitude coordinate of candidate or site' },
+        longitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit longitude coordinate of candidate or site' },
+        address: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional freeform street address to analyze on the fly' },
         travelMode: { type: FunctionDeclarationSchemaType.STRING, description: 'Travel mode: drive, walk, or transit (default drive)' },
         timeMinutes: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Travel time threshold in minutes (default 10; max 30)' },
       },
-      required: ['locationNameOrId'],
     },
   },
   {
@@ -74,9 +78,11 @@ export const toolDeclarations: FunctionDeclaration[] = [
     parameters: {
       type: FunctionDeclarationSchemaType.OBJECT,
       properties: {
-        locationNameOrId: { type: FunctionDeclarationSchemaType.STRING, description: 'Name or ID of the user saved location branch or candidate spot' },
+        locationNameOrId: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional name or ID of a saved location or candidate spot' },
+        latitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit latitude coordinate of candidate or site' },
+        longitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit longitude coordinate of candidate or site' },
+        address: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional freeform street address to inspect' },
       },
-      required: ['locationNameOrId'],
     },
   },
 ];
