@@ -35,6 +35,38 @@ export interface CatchmentDataPayload {
   summary: string;
 }
 
+export interface AccessibilityDataPayload {
+  analysisId: string;
+  locationId: string;
+  locationName: string;
+  travelMode: 'drive' | 'walk' | 'transit';
+  timeMinutes: number;
+  compositeScore: number;
+  subScores: CatchmentSubScores;
+  poiCount: number;
+  polygonCoordinates: Array<{ lat: number; lng: number }>;
+  radiusScoreDelta?: number;
+  summary: string;
+}
+
+export interface SiteVisitDataPayload {
+  visitId: string;
+  locationName: string;
+  hasStreetViewCoverage: boolean;
+  overallVisualScore: number;
+  images: {
+    hasStreetViewCoverage: boolean;
+    streetViewNorthUrl?: string;
+    streetViewEastUrl?: string;
+    streetViewSouthUrl?: string;
+    streetViewWestUrl?: string;
+    satelliteUrl: string;
+  };
+  criteria: Record<string, { score: number; justification: string }>;
+  center: { lat: number; lng: number };
+  summary: string;
+}
+
 export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
@@ -42,6 +74,8 @@ export interface ChatStreamEvent {
   candidates?: any[];
   heatmapData?: HeatmapDataPayload;
   catchmentData?: CatchmentDataPayload;
+  accessibilityData?: AccessibilityDataPayload;
+  siteVisitData?: SiteVisitDataPayload;
   error?: string;
   timestamp: string;
 }

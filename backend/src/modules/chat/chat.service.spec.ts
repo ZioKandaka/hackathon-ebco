@@ -5,6 +5,7 @@ import { ChatMessage, MessageSender } from './entities/chat-message.entity';
 import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
+import { SiteVisitService } from '../discovery/services/site-visit.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -12,6 +13,7 @@ describe('ChatService', () => {
   let mockGeocodingService: any;
   let mockLocationsService: any;
   let mockDiscoveryService: any;
+  let mockSiteVisitService: any;
 
   beforeEach(async () => {
     mockRepository = {
@@ -87,6 +89,40 @@ describe('ChatService', () => {
         poiCount: 140,
         summary: 'Catchment analysis for Sudirman Branch within 2km: Composite Score 82/100.',
       }),
+      calculateAccessibilityScore: jest.fn().mockResolvedValue({
+        compositeScore: 78,
+        subScores: {
+          demandDensity: 82,
+          trafficProxy: 72,
+          areaQuality: 84,
+          competitionPenalty: 12,
+          networkSaturation: 0,
+          operationalVitality: 94,
+        },
+        poiCount: 112,
+        polygonCoordinates: [
+          { lat: -6.2000, lng: 106.8400 },
+          { lat: -6.2100, lng: 106.8500 },
+          { lat: -6.2200, lng: 106.8400 },
+        ],
+        summary: 'Accessibility analysis for Sudirman Branch (10-minute drive): Composite Score 78/100.',
+      }),
+    };
+
+    mockSiteVisitService = {
+      analyzeSite: jest.fn().mockResolvedValue({
+        hasStreetViewCoverage: true,
+        overallVisualScore: 85,
+        images: {
+          hasStreetViewCoverage: true,
+          streetViewNorthUrl: 'https://example.com/north.jpg',
+          satelliteUrl: 'https://example.com/sat.jpg',
+        },
+        criteria: {
+          storefrontVisibility: { score: 90, justification: 'Clear signage' },
+        },
+        summary: 'AI Site Visit Report for Sudirman Branch: Visual Score 85/100.',
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -107,6 +143,10 @@ describe('ChatService', () => {
         {
           provide: DiscoveryService,
           useValue: mockDiscoveryService,
+        },
+        {
+          provide: SiteVisitService,
+          useValue: mockSiteVisitService,
         },
       ],
     }).compile();
@@ -298,6 +338,55 @@ describe('ChatService', () => {
           const messageEvent = events.find((e) => e.type === 'message' && e.catchmentData);
           expect(messageEvent).toBeDefined();
           expect(messageEvent.catchmentData.radiusKm).toBe(3.0);
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should execute Accessibility Analysis skill for travel-time requests', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'Check how accessible my Sudirman branch is within a 10 minute drive';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          expect(events[0].type).toBe('status');
+          expect(events[0].step).toContain('Accessibility Analysis');
+          const messageEvent = events.find((e) => e.type === 'message' && e.accessibilityData);
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.accessibilityData.compositeScore).toBe(78);
+          expect(messageEvent.accessibilityData.travelMode).toBe('drive');
+          expect(messageEvent.accessibilityData.timeMinutes).toBe(10);
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should execute AI Site Visit skill for site visit requests', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'Do an AI site visit on my Sudirman branch';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          expect(events[0].type).toBe('status');
+          expect(events[0].step).toContain('AI Site Visit');
+          const messageEvent = events.find((e) => e.type === 'message' && e.siteVisitData);
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.siteVisitData.overallVisualScore).toBe(85);
+          expect(messageEvent.siteVisitData.images.satelliteUrl).toBeDefined();
           done();
         },
       });

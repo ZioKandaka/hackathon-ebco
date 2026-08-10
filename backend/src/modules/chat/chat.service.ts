@@ -6,6 +6,7 @@ import { ChatMessage, MessageSender } from './entities/chat-message.entity';
 import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
+import { SiteVisitService } from '../discovery/services/site-visit.service';
 
 export interface HeatmapPoint {
   lat: number;
@@ -44,6 +45,38 @@ export interface CatchmentDataPayload {
   summary: string;
 }
 
+export interface AccessibilityDataPayload {
+  analysisId: string;
+  locationId: string;
+  locationName: string;
+  travelMode: 'drive' | 'walk' | 'transit';
+  timeMinutes: number;
+  compositeScore: number;
+  subScores: CatchmentSubScores;
+  poiCount: number;
+  polygonCoordinates: Array<{ lat: number; lng: number }>;
+  radiusScoreDelta?: number;
+  summary: string;
+}
+
+export interface SiteVisitDataPayload {
+  visitId: string;
+  locationName: string;
+  hasStreetViewCoverage: boolean;
+  overallVisualScore: number;
+  images: {
+    hasStreetViewCoverage: boolean;
+    streetViewNorthUrl?: string;
+    streetViewEastUrl?: string;
+    streetViewSouthUrl?: string;
+    streetViewWestUrl?: string;
+    satelliteUrl: string;
+  };
+  criteria: Record<string, { score: number; justification: string }>;
+  center: { lat: number; lng: number };
+  summary: string;
+}
+
 export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
@@ -51,6 +84,8 @@ export interface ChatStreamEvent {
   candidates?: any[];
   heatmapData?: HeatmapDataPayload;
   catchmentData?: CatchmentDataPayload;
+  accessibilityData?: AccessibilityDataPayload;
+  siteVisitData?: SiteVisitDataPayload;
   error?: string;
   timestamp: string;
 }
@@ -63,6 +98,7 @@ export class ChatService {
     private readonly geocodingService: GeocodingService,
     private readonly locationsService: LocationsService,
     private readonly discoveryService: DiscoveryService,
+    private readonly siteVisitService: SiteVisitService,
   ) {}
 
   async getHistory(userId: string): Promise<ChatMessage[]> {
@@ -94,14 +130,39 @@ export class ChatService {
         await this.saveMessage(userId, MessageSender.USER, userMessage);
 
         const lowerMsg = userMessage.toLowerCase();
+        const isSiteVisitIntent =
+          lowerMsg.includes('site visit') ||
+          lowerMsg.includes('visual check') ||
+          lowerMsg.includes('visual assessment') ||
+          lowerMsg.includes('what does spot') ||
+          lowerMsg.includes('look like') ||
+          lowerMsg.includes('street view');
+
+        const isAccessibilityIntent =
+          !isSiteVisitIntent &&
+          (lowerMsg.includes('accessible') ||
+          lowerMsg.includes('accessibility') ||
+          lowerMsg.includes('isochrone') ||
+          lowerMsg.includes('travel time') ||
+          lowerMsg.includes('drive time') ||
+          lowerMsg.includes('walk time') ||
+          lowerMsg.includes('transit time') ||
+          lowerMsg.includes('minute drive') ||
+          lowerMsg.includes('minute walk') ||
+          lowerMsg.includes('minute transit'));
+
         const isCatchmentIntent =
-          lowerMsg.includes('catchment') ||
+          !isSiteVisitIntent &&
+          !isAccessibilityIntent &&
+          (lowerMsg.includes('catchment') ||
           lowerMsg.includes('catchment score') ||
           lowerMsg.includes('analyze catchment') ||
           lowerMsg.includes('catchment analysis') ||
-          lowerMsg.includes('catchment for');
+          lowerMsg.includes('catchment for'));
 
         const isHeatmapIntent =
+          !isSiteVisitIntent &&
+          !isAccessibilityIntent &&
           !isCatchmentIntent &&
           (lowerMsg.includes('heatmap') ||
           lowerMsg.includes('heat map') ||
@@ -109,6 +170,8 @@ export class ChatService {
           lowerMsg.includes('density heatmap'));
 
         const isDiscoveryIntent =
+          !isSiteVisitIntent &&
+          !isAccessibilityIntent &&
           !isCatchmentIntent &&
           !isHeatmapIntent &&
           (lowerMsg.includes('find') ||
@@ -119,6 +182,8 @@ export class ChatService {
           lowerMsg.includes('candidate'));
 
         const isAddBranchIntent =
+          !isSiteVisitIntent &&
+          !isAccessibilityIntent &&
           !isCatchmentIntent &&
           !isHeatmapIntent &&
           !isDiscoveryIntent &&
@@ -127,7 +192,11 @@ export class ChatService {
             lowerMsg.includes('branch') ||
             lowerMsg.includes('register'));
 
-        if (isCatchmentIntent) {
+        if (isSiteVisitIntent) {
+          await this.executeSiteVisitSkill(userId, userMessage, subject);
+        } else if (isAccessibilityIntent) {
+          await this.executeAccessibilitySkill(userId, userMessage, subject);
+        } else if (isCatchmentIntent) {
           await this.executeCatchmentSkill(userId, userMessage, subject);
         } else if (isHeatmapIntent) {
           await this.executeHeatmapSkill(userId, userMessage, subject);
@@ -151,6 +220,244 @@ export class ChatService {
     }, 10);
 
     return subject.asObservable();
+  }
+
+  private async executeSiteVisitSkill(
+    userId: string,
+    userMessage: string,
+    subject: Subject<{ data: ChatStreamEvent }>,
+  ): Promise<void> {
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Determining the right action (AI Site Visit)...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const userLocations = await this.locationsService.getUserLocations(userId);
+
+    if (userLocations.length === 0) {
+      userLocations.push({
+        id: 'demo-loc-1',
+        userId,
+        name: 'Sudirman Branch',
+        businessType: 'coffee_shop',
+        fullAddress: 'Jl. Jend. Sudirman No. 45, Jakarta',
+        latitude: -6.2088,
+        longitude: 106.8456,
+        confidence: 1.0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+    }
+
+    const matchedLocation = this.findMatchingLocation(userMessage, userLocations);
+
+    if (!matchedLocation) {
+      const availableNames = userLocations.map((l) => l.name).join(', ');
+      const notFoundMsg = `I couldn't find a matching location for the site visit. Your saved locations are: ${availableNames}.`;
+      await this.saveMessage(userId, MessageSender.ASSISTANT, notFoundMsg);
+      subject.next({
+        data: {
+          type: 'message',
+          content: notFoundMsg,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+      subject.complete();
+      return;
+    }
+
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Fetching street-level imagery and satellite snapshot...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Analyzing the site visually with multimodal vision AI...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const result = await this.siteVisitService.analyzeSite(
+      Number(matchedLocation.latitude),
+      Number(matchedLocation.longitude),
+      matchedLocation.name,
+    );
+
+    const visitId = `sv-${Date.now().toString(36)}`;
+    await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+
+    subject.next({
+      data: {
+        type: 'message',
+        content: result.summary,
+        siteVisitData: {
+          visitId,
+          locationName: matchedLocation.name,
+          hasStreetViewCoverage: result.hasStreetViewCoverage,
+          overallVisualScore: result.overallVisualScore,
+          images: result.images,
+          criteria: result.criteria as any,
+          center: { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) },
+          summary: result.summary,
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+    subject.complete();
+  }
+
+  private async executeAccessibilitySkill(
+    userId: string,
+    userMessage: string,
+    subject: Subject<{ data: ChatStreamEvent }>,
+  ): Promise<void> {
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Determining the right action (Accessibility Analysis)...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const travelMode = this.extractTravelMode(userMessage);
+    const timeMinutes = this.extractTimeMinutes(userMessage);
+
+    const userLocations = await this.locationsService.getUserLocations(userId);
+
+    if (userLocations.length === 0) {
+      userLocations.push({
+        id: 'demo-loc-1',
+        userId,
+        name: 'Sudirman Branch',
+        businessType: 'coffee_shop',
+        fullAddress: 'Jl. Jend. Sudirman No. 45, Jakarta',
+        latitude: -6.2088,
+        longitude: 106.8456,
+        confidence: 1.0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+    }
+
+    const matchedLocation = this.findMatchingLocation(userMessage, userLocations);
+
+    if (!matchedLocation) {
+      const availableNames = userLocations.map((l) => l.name).join(', ');
+      const notFoundMsg = `I couldn't find a matching registered location for accessibility check. Your available saved locations are: ${availableNames}.`;
+      await this.saveMessage(userId, MessageSender.ASSISTANT, notFoundMsg);
+      subject.next({
+        data: {
+          type: 'message',
+          content: notFoundMsg,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+      subject.complete();
+      return;
+    }
+
+    subject.next({
+      data: {
+        type: 'status',
+        step: `Calculating ${timeMinutes}-minute ${travelMode} travel-time boundary...`,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Analyzing reachable area POI density...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const history = await this.getHistory(userId);
+    let previousRadiusScore: number | undefined = undefined;
+    for (const msg of history) {
+      if (msg.sender === MessageSender.ASSISTANT && msg.content.includes('Overall Composite Score:')) {
+        const scoreMatch = msg.content.match(/Overall Composite Score:\s*(\d+)/i);
+        if (scoreMatch && scoreMatch[1]) {
+          previousRadiusScore = parseInt(scoreMatch[1], 10);
+        }
+      }
+    }
+
+    const result = await this.discoveryService.calculateAccessibilityScore({
+      lat: Number(matchedLocation.latitude),
+      lng: Number(matchedLocation.longitude),
+      travelMode,
+      timeMinutes,
+      businessType: matchedLocation.businessType,
+      locationName: matchedLocation.name,
+      previousRadiusScore,
+    });
+
+    const analysisId = `acc-${Date.now().toString(36)}`;
+    await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+
+    subject.next({
+      data: {
+        type: 'message',
+        content: result.summary,
+        accessibilityData: {
+          analysisId,
+          locationId: matchedLocation.id,
+          locationName: matchedLocation.name,
+          travelMode,
+          timeMinutes,
+          compositeScore: result.compositeScore,
+          subScores: result.subScores,
+          poiCount: result.poiCount,
+          polygonCoordinates: result.polygonCoordinates,
+          radiusScoreDelta: previousRadiusScore !== undefined ? result.compositeScore - previousRadiusScore : undefined,
+          summary: result.summary,
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+    subject.complete();
+  }
+
+  private extractTravelMode(msg: string): 'drive' | 'walk' | 'transit' {
+    const lower = msg.toLowerCase();
+    if (lower.includes('walk') || lower.includes('walking') || lower.includes('foot')) return 'walk';
+    if (lower.includes('transit') || lower.includes('bus') || lower.includes('train') || lower.includes('public transit')) return 'transit';
+    return 'drive';
+  }
+
+  private extractTimeMinutes(msg: string): number {
+    const match = msg.match(/(\d+)\s*(?:min|minute|minutes|mins)\b/i);
+    if (match && match[1]) {
+      return Math.min(30, Math.max(1, parseInt(match[1], 10)));
+    }
+    return 10;
   }
 
   private async executeCatchmentSkill(

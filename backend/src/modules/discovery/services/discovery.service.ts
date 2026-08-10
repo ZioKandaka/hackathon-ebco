@@ -34,6 +34,14 @@ export interface CatchmentCalculationResult {
   summary: string;
 }
 
+export interface AccessibilityCalculationResult {
+  compositeScore: number;
+  subScores: CatchmentSubScores;
+  poiCount: number;
+  polygonCoordinates: Array<{ lat: number; lng: number }>;
+  summary: string;
+}
+
 @Injectable()
 export class DiscoveryService {
   constructor(private readonly bigqueryDiscoveryService: BigQueryDiscoveryService) {}
@@ -232,6 +240,114 @@ export class DiscoveryService {
         operationalVitality,
       },
       poiCount,
+      summary,
+    };
+  }
+
+  async calculateAccessibilityScore(options: {
+    lat: number;
+    lng: number;
+    travelMode?: 'drive' | 'walk' | 'transit';
+    timeMinutes?: number;
+    businessType?: string;
+    locationName?: string;
+    previousRadiusScore?: number;
+  }): Promise<AccessibilityCalculationResult> {
+    const travelMode = options.travelMode || 'drive';
+    const timeMinutes = Math.min(30, Math.max(1, options.timeMinutes || 10));
+
+    const polygonCoordinates = await this.bigqueryDiscoveryService.generateIsochronePolygon(
+      options.lat,
+      options.lng,
+      travelMode,
+      timeMinutes,
+    );
+
+    const rawPois = await this.bigqueryDiscoveryService.queryPoisInsidePolygon(
+      polygonCoordinates,
+    );
+
+    const poiCount = rawPois.length;
+    const bType = (options.businessType || 'business').toLowerCase();
+    const demandCategories = this.bigqueryDiscoveryService.getDemandCategoriesForType(bType);
+
+    const demandPois = rawPois.filter((p) =>
+      demandCategories.some((dc) => (p.category || '').toLowerCase().includes(dc)),
+    );
+    const demandDensity = Math.min(100, Math.max(10, Math.round((demandPois.length / Math.max(1, poiCount)) * 120)));
+
+    const totalRatings = rawPois.reduce((acc, p) => acc + (p.userRatingsTotal || 0), 0);
+    const trafficProxy = Math.min(100, Math.max(10, Math.round(Math.log10(totalRatings + 1) * 28)));
+
+    const validRatings = rawPois.filter((p) => p.rating && p.rating > 0);
+    const avgRating = validRatings.length > 0
+      ? validRatings.reduce((acc, p) => acc + (p.rating || 4.0), 0) / validRatings.length
+      : 4.0;
+    const areaQuality = Math.min(100, Math.max(20, Math.round((avgRating / 5.0) * 100)));
+
+    const competitors = rawPois.filter((p) => (p.category || '').toLowerCase().includes(bType));
+    const competitionPenalty = Math.min(100, Math.round(competitors.length * 12));
+
+    const networkSaturation = Math.min(100, Math.max(0, (competitors.length - 2) * 20));
+
+    const activePois = rawPois.filter((p) => (p.businessStatus || 'OPERATIONAL') === 'OPERATIONAL');
+    const operationalVitality = poiCount > 0
+      ? Math.round((activePois.length / poiCount) * 100)
+      : 90;
+
+    const weights = {
+      demandDensity: 0.30,
+      trafficProxy: 0.20,
+      areaQuality: 0.20,
+      competitionPenalty: 0.15,
+      networkSaturation: 0.10,
+      operationalVitality: 0.05,
+    };
+
+    const rawComposite =
+      (demandDensity * weights.demandDensity) +
+      (trafficProxy * weights.trafficProxy) +
+      (areaQuality * weights.areaQuality) -
+      (competitionPenalty * weights.competitionPenalty) -
+      (networkSaturation * weights.networkSaturation) +
+      (operationalVitality * weights.operationalVitality);
+
+    const compositeScore = Math.min(100, Math.max(1, Math.round(rawComposite)));
+
+    const locName = options.locationName || 'location';
+    const modeLabel = travelMode === 'drive' ? 'drive' : travelMode === 'walk' ? 'walk' : 'transit';
+
+    let comparisonNote = '';
+    if (options.previousRadiusScore !== undefined) {
+      const delta = compositeScore - options.previousRadiusScore;
+      const sign = delta >= 0 ? `+${delta}` : `${delta}`;
+      comparisonNote = `\n• Comparison vs 2km Radius: ${sign} points (${compositeScore} ${modeLabel}-time vs ${options.previousRadiusScore} radius, reflecting actual road network geometry and barriers).\n`;
+    }
+
+    const summary =
+      `Accessibility analysis for ${locName} (${timeMinutes}-minute ${modeLabel}):\n\n` +
+      `• Travel-Time Composite Score: ${compositeScore} / 100` +
+      comparisonNote +
+      `\nSub-score Breakdown:\n` +
+      `- Demand Density: ${demandDensity}/100 (${demandPois.length} reachable demand POIs)\n` +
+      `- Traffic Proxy: ${trafficProxy}/100\n` +
+      `- Area Quality: ${areaQuality}/100 (${avgRating.toFixed(1)} avg rating)\n` +
+      `- Competition Penalty: ${competitionPenalty}/100 (${competitors.length} competitors inside isochrone)\n` +
+      `- Network Saturation: ${networkSaturation}/100\n` +
+      `- Operational Vitality: ${operationalVitality}/100 (${activePois.length}/${poiCount} operating POIs)`;
+
+    return {
+      compositeScore,
+      subScores: {
+        demandDensity,
+        trafficProxy,
+        areaQuality,
+        competitionPenalty,
+        networkSaturation,
+        operationalVitality,
+      },
+      poiCount,
+      polygonCoordinates,
       summary,
     };
   }

@@ -32,4 +32,25 @@ describe('useGoogleMap', () => {
       expect(() => googleMapService.removeCatchmentCircle()).not.toThrow();
     });
   });
+
+  describe('googleMapService isochrone polygon layer management', () => {
+    it('should provide removeIsochronePolygon and renderIsochronePolygon methods', () => {
+      expect(typeof googleMapService.renderIsochronePolygon).toBe('function');
+      expect(typeof googleMapService.removeIsochronePolygon).toBe('function');
+    });
+
+    it('should safely execute removeIsochronePolygon when no polygon is active', () => {
+      expect(() => googleMapService.removeIsochronePolygon()).not.toThrow();
+    });
+  });
+
+  describe('googleMapService map centering management', () => {
+    it('should provide setCenterAndZoom method on GoogleMapService', () => {
+      expect(typeof googleMapService.setCenterAndZoom).toBe('function');
+    });
+
+    it('should safely execute setCenterAndZoom when map is null', () => {
+      expect(() => googleMapService.setCenterAndZoom({ lat: -6.2088, lng: 106.8456 }, 17)).not.toThrow();
+    });
+  });
 });

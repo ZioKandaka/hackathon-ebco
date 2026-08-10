@@ -9,6 +9,9 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  test: {
+    include: ['src/**/*.spec.ts'],
+  },
   server: {
     port: 5173,
     proxy: {

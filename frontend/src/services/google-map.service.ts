@@ -39,6 +39,13 @@ export interface CatchmentCircleOptions {
   fitBounds?: boolean;
 }
 
+export interface IsochronePolygonOptions {
+  strokeColor?: string;
+  fillColor?: string;
+  fillOpacity?: number;
+  fitBounds?: boolean;
+}
+
 const DEFAULT_CENTER: LatLng = { lat: -6.2088, lng: 106.8456 }; // Greater Jakarta / West Java
 const DEFAULT_ZOOM = 11;
 
@@ -53,9 +60,11 @@ class GoogleMapService {
   private activeHeatmapLayer: google.maps.visualization.HeatmapLayer | null = null;
   private fallbackHeatmapCircles: google.maps.Circle[] = [];
   private activeCatchmentCircle: google.maps.Circle | null = null;
+  private activeIsochronePolygon: google.maps.Polygon | null = null;
   private heatmapConstructor: any = null;
   private pendingHeatmap: { points: HeatmapPoint[]; options?: RenderHeatmapOptions } | null = null;
   private pendingCatchmentCircle: { center: LatLng; radiusMeters: number; options?: CatchmentCircleOptions } | null = null;
+  private pendingIsochronePolygon: { path: LatLng[]; options?: IsochronePolygonOptions } | null = null;
 
   private constructor() {}
 
@@ -148,6 +157,12 @@ class GoogleMapService {
       const pending = this.pendingCatchmentCircle;
       this.pendingCatchmentCircle = null;
       this.renderCatchmentCircle(pending.center, pending.radiusMeters, pending.options);
+    }
+
+    if (this.pendingIsochronePolygon) {
+      const pending = this.pendingIsochronePolygon;
+      this.pendingIsochronePolygon = null;
+      this.renderIsochronePolygon(pending.path, pending.options);
     }
 
     return this.map;
@@ -338,8 +353,9 @@ class GoogleMapService {
       return null;
     }
 
-    // Unregister and destroy existing active catchment circle overlay (FR-009, SC-003)
+    // Unregister and destroy existing active catchment boundary overlays (FR-009, SC-003)
     this.removeCatchmentCircle();
+    this.removeIsochronePolygon();
 
     if (!center || radiusMeters <= 0) return null;
 
@@ -364,12 +380,63 @@ class GoogleMapService {
     return circle;
   }
 
+  removeIsochronePolygon(): void {
+    if (this.activeIsochronePolygon) {
+      this.activeIsochronePolygon.setMap(null);
+      this.activeIsochronePolygon = null;
+    }
+  }
+
+  renderIsochronePolygon(path: LatLng[], options?: IsochronePolygonOptions): google.maps.Polygon | null {
+    if (!this.map || !window.google?.maps) {
+      if (path && path.length > 0) {
+        this.pendingIsochronePolygon = { path, options };
+      }
+      return null;
+    }
+
+    // Unregister and destroy existing active spatial boundary overlays (FR-009, Option A clarification)
+    this.removeCatchmentCircle();
+    this.removeIsochronePolygon();
+
+    if (!path || path.length < 3) return null;
+
+    const polygon = new google.maps.Polygon({
+      paths: path,
+      strokeColor: options?.strokeColor || '#805AD5',
+      strokeOpacity: 0.85,
+      strokeWeight: 2,
+      fillColor: options?.fillColor || '#805AD5',
+      fillOpacity: options?.fillOpacity ?? 0.22,
+      map: this.map,
+      clickable: false,
+    });
+
+    this.activeIsochronePolygon = polygon;
+
+    if (options?.fitBounds !== false && this.map) {
+      const bounds = new google.maps.LatLngBounds();
+      path.forEach((pt) => bounds.extend({ lat: pt.lat, lng: pt.lng }));
+      this.map.fitBounds(bounds);
+    }
+
+    return polygon;
+  }
+
   clearAllLayers(): void {
     this.clearMarkers();
     this.removeHeatmap();
     this.removeCatchmentCircle();
+    this.removeIsochronePolygon();
     this.polygons.forEach((polygon) => polygon.setMap(null));
     this.polygons.clear();
+  }
+
+  setCenterAndZoom(center: LatLng, zoom = 16): void {
+    if (this.map && window.google?.maps) {
+      this.map.setCenter({ lat: center.lat, lng: center.lng });
+      this.map.setZoom(zoom);
+    }
   }
 
   triggerResize(): void {

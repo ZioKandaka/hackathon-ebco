@@ -10,6 +10,7 @@ export interface ChatMessageItem {
   sender: 'user' | 'assistant';
   content: string;
   createdAt?: string;
+  siteVisitData?: any;
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -51,11 +52,20 @@ export const useChatStore = defineStore('chat', () => {
           activeStatusStep.value = event.step;
         } else if (event.type === 'message' && event.content) {
           activeStatusStep.value = null;
-          messages.value.push({
+          const newMsg: ChatMessageItem = {
             sender: 'assistant',
             content: event.content,
             createdAt: event.timestamp || new Date().toISOString(),
-          });
+          };
+
+          if (event.siteVisitData) {
+            newMsg.siteVisitData = event.siteVisitData;
+            if (event.siteVisitData.center) {
+              googleMapService.setCenterAndZoom(event.siteVisitData.center, 17);
+            }
+          }
+
+          messages.value.push(newMsg);
 
           if (event.candidates && Array.isArray(event.candidates) && event.candidates.length > 0) {
             const discoveryStore = useDiscoveryStore();
@@ -70,6 +80,13 @@ export const useChatStore = defineStore('chat', () => {
             googleMapService.renderCatchmentCircle(
               event.catchmentData.center,
               event.catchmentData.radiusKm * 1000,
+              { fitBounds: true },
+            );
+          }
+
+          if (event.accessibilityData && event.accessibilityData.polygonCoordinates) {
+            googleMapService.renderIsochronePolygon(
+              event.accessibilityData.polygonCoordinates,
               { fitBounds: true },
             );
           }

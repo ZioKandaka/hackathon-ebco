@@ -69,4 +69,30 @@ describe('DiscoveryService', () => {
       expect(result.subScores.operationalVitality).toBeDefined();
     });
   });
+
+  describe('calculateAccessibilityScore', () => {
+    it('should compute travel-time isochrone polygon and catchment score', async () => {
+      mockBigQueryService.generateIsochronePolygon = jest.fn().mockResolvedValue([
+        { lat: -6.2000, lng: 106.8400 },
+        { lat: -6.2100, lng: 106.8500 },
+        { lat: -6.2200, lng: 106.8400 },
+      ]);
+      mockBigQueryService.queryPoisInsidePolygon = jest.fn().mockResolvedValue([
+        { id: 'p1', name: 'School A', category: 'school', latitude: -6.2088, longitude: 106.8456, rating: 4.5, userRatingsTotal: 120, businessStatus: 'OPERATIONAL' },
+      ]);
+
+      const result = await service.calculateAccessibilityScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        travelMode: 'drive',
+        timeMinutes: 10,
+        locationName: 'Sudirman Branch',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.compositeScore).toBeGreaterThan(0);
+      expect(result.polygonCoordinates.length).toBeGreaterThan(0);
+      expect(result.summary).toContain('10-minute drive');
+    });
+  });
 });
