@@ -38,4 +38,14 @@ describe('BigQueryDiscoveryService', () => {
       expect(pois[0].longitude).toBeDefined();
     });
   });
+
+  describe('queryHeatmapRawPois', () => {
+    it('should return raw spatial POI points for heatmap generation', async () => {
+      const points = await service.queryHeatmapRawPois('Kediri');
+      expect(points).toBeDefined();
+      expect(points.length).toBeGreaterThan(0);
+      expect(points[0].latitude).toBeDefined();
+      expect(points[0].longitude).toBeDefined();
+    });
+  });
 });

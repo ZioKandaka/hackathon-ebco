@@ -34,6 +34,16 @@ describe('ChatService', () => {
     };
 
     mockLocationsService = {
+      getUserLocations: jest.fn().mockResolvedValue([
+        {
+          id: 'loc-123',
+          name: 'Sudirman Branch',
+          businessType: 'coffee_shop',
+          fullAddress: 'Jl. Sudirman No. 10, Jakarta',
+          latitude: -6.2088,
+          longitude: 106.8456,
+        },
+      ]),
       findDuplicateLocation: jest.fn().mockResolvedValue(null),
       createLocation: jest.fn().mockResolvedValue({
         id: 'loc-123',
@@ -57,6 +67,26 @@ describe('ChatService', () => {
           rationale: 'High demand density',
         },
       ]),
+      generateHeatmapDataset: jest.fn().mockResolvedValue({
+        points: [
+          { lat: -7.8167, lng: 112.0117, weight: 8.5 },
+          { lat: -7.8200, lng: 112.0150, weight: 6.2 },
+        ],
+        summary: 'Darker red areas indicate high minimarket demand density in Kediri.',
+      }),
+      calculateCatchmentScore: jest.fn().mockResolvedValue({
+        compositeScore: 82,
+        subScores: {
+          demandDensity: 88,
+          trafficProxy: 75,
+          areaQuality: 84,
+          competitionPenalty: 15,
+          networkSaturation: 0,
+          operationalVitality: 95,
+        },
+        poiCount: 140,
+        summary: 'Catchment analysis for Sudirman Branch within 2km: Composite Score 82/100.',
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -154,6 +184,120 @@ describe('ChatService', () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
           expect(events[0].step).toContain('Add Business/Branch');
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should execute Heatmap Visualization skill for heatmap requests', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'Show me a heatmap for my minimarket business in Kediri';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          expect(events[0].type).toBe('status');
+          expect(events[0].step).toContain('Heatmap Visualization');
+          const messageEvent = events.find((e) => e.type === 'message' && e.heatmapData);
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.heatmapData.points.length).toBe(2);
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should execute Heatmap Visualization skill for custom exploratory requests (Mode B)', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'Show me a heatmap of preschools with rating below 4.0 in Bandung';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          expect(events[0].type).toBe('status');
+          const messageEvent = events.find((e) => e.type === 'message' && e.heatmapData);
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.heatmapData.mode).toBe('custom_prompt');
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should execute Heatmap Visualization skill for high school in jakarta selatan prompt', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'show me a heatmap of high school in jakarta selatan';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          expect(events[0].type).toBe('status');
+          expect(events[0].step).toContain('Heatmap Visualization');
+          const messageEvent = events.find((e) => e.type === 'message' && e.heatmapData);
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.heatmapData.region).toBe('jakarta selatan');
+          expect(messageEvent.heatmapData.points.length).toBeGreaterThan(0);
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should execute Catchment Score skill for catchment requests', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'Analyze the catchment for my Sudirman branch within 2km';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          expect(events[0].type).toBe('status');
+          expect(events[0].step).toContain('Catchment Score');
+          const messageEvent = events.find((e) => e.type === 'message' && e.catchmentData);
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.catchmentData.compositeScore).toBe(82);
+          expect(messageEvent.catchmentData.radiusKm).toBe(2.0);
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should handle follow-up radius and sub-score weight adjustment', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'change catchment radius to 3km for Sudirman branch and ignore competition penalty';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          const messageEvent = events.find((e) => e.type === 'message' && e.catchmentData);
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.catchmentData.radiusKm).toBe(3.0);
           done();
         },
       });

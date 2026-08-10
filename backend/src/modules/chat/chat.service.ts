@@ -7,11 +7,50 @@ import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
 
+export interface HeatmapPoint {
+  lat: number;
+  lng: number;
+  weight: number;
+}
+
+export interface HeatmapDataPayload {
+  queryId: string;
+  mode: 'business_based' | 'custom_prompt';
+  businessType?: string;
+  region: string;
+  pointCount: number;
+  points: HeatmapPoint[];
+  summary: string;
+}
+
+export interface CatchmentSubScores {
+  demandDensity: number;
+  trafficProxy: number;
+  areaQuality: number;
+  competitionPenalty: number;
+  networkSaturation: number;
+  operationalVitality: number;
+}
+
+export interface CatchmentDataPayload {
+  analysisId: string;
+  locationId: string;
+  locationName: string;
+  radiusKm: number;
+  compositeScore: number;
+  subScores: CatchmentSubScores;
+  poiCount: number;
+  center: { lat: number; lng: number };
+  summary: string;
+}
+
 export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
   content?: string;
   candidates?: any[];
+  heatmapData?: HeatmapDataPayload;
+  catchmentData?: CatchmentDataPayload;
   error?: string;
   timestamp: string;
 }
@@ -55,22 +94,44 @@ export class ChatService {
         await this.saveMessage(userId, MessageSender.USER, userMessage);
 
         const lowerMsg = userMessage.toLowerCase();
+        const isCatchmentIntent =
+          lowerMsg.includes('catchment') ||
+          lowerMsg.includes('catchment score') ||
+          lowerMsg.includes('analyze catchment') ||
+          lowerMsg.includes('catchment analysis') ||
+          lowerMsg.includes('catchment for');
+
+        const isHeatmapIntent =
+          !isCatchmentIntent &&
+          (lowerMsg.includes('heatmap') ||
+          lowerMsg.includes('heat map') ||
+          lowerMsg.includes('density map') ||
+          lowerMsg.includes('density heatmap'));
+
         const isDiscoveryIntent =
-          lowerMsg.includes('find') ||
+          !isCatchmentIntent &&
+          !isHeatmapIntent &&
+          (lowerMsg.includes('find') ||
           lowerMsg.includes('discover') ||
           lowerMsg.includes('where') ||
           lowerMsg.includes('spots') ||
           lowerMsg.includes('spot') ||
-          lowerMsg.includes('candidate');
+          lowerMsg.includes('candidate'));
 
         const isAddBranchIntent =
+          !isCatchmentIntent &&
+          !isHeatmapIntent &&
           !isDiscoveryIntent &&
           (lowerMsg.includes('add') ||
             lowerMsg.includes('create') ||
             lowerMsg.includes('branch') ||
             lowerMsg.includes('register'));
 
-        if (isDiscoveryIntent) {
+        if (isCatchmentIntent) {
+          await this.executeCatchmentSkill(userId, userMessage, subject);
+        } else if (isHeatmapIntent) {
+          await this.executeHeatmapSkill(userId, userMessage, subject);
+        } else if (isDiscoveryIntent) {
           await this.executeDiscoverySkill(userId, userMessage, subject);
         } else if (isAddBranchIntent) {
           await this.executeAddBranchSkill(userId, userMessage, subject);
@@ -90,6 +151,286 @@ export class ChatService {
     }, 10);
 
     return subject.asObservable();
+  }
+
+  private async executeCatchmentSkill(
+    userId: string,
+    userMessage: string,
+    subject: Subject<{ data: ChatStreamEvent }>,
+  ): Promise<void> {
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Determining the right action (Catchment Score)...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const radiusKm = this.extractRadiusFromMessage(userMessage);
+    const userLocations = await this.locationsService.getUserLocations(userId);
+
+    if (userLocations.length === 0) {
+      userLocations.push({
+        id: 'demo-loc-1',
+        userId,
+        name: 'Sudirman Branch',
+        businessType: 'coffee_shop',
+        fullAddress: 'Jl. Jend. Sudirman No. 45, Jakarta',
+        latitude: -6.2088,
+        longitude: 106.8456,
+        confidence: 1.0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any);
+    }
+
+    const matchedLocation = this.findMatchingLocation(userMessage, userLocations);
+
+    if (!matchedLocation) {
+      const availableNames = userLocations.map((l) => l.name).join(', ');
+      const notFoundMsg = `I couldn't find a matching registered location. Your available saved locations are: ${availableNames}.\n\nPlease mention one of these location names!`;
+      await this.saveMessage(userId, MessageSender.ASSISTANT, notFoundMsg);
+      subject.next({
+        data: {
+          type: 'message',
+          content: notFoundMsg,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+      subject.complete();
+      return;
+    }
+
+    subject.next({
+      data: {
+        type: 'status',
+        step: `Gathering nearby location data within ${radiusKm}km...`,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Calculating catchment score...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const customWeights = this.extractCustomWeights(userMessage);
+
+    const result = await this.discoveryService.calculateCatchmentScore({
+      lat: Number(matchedLocation.latitude),
+      lng: Number(matchedLocation.longitude),
+      radiusKm,
+      businessType: matchedLocation.businessType,
+      locationName: matchedLocation.name,
+      customWeights,
+    });
+
+    const analysisId = `cs-${Date.now().toString(36)}`;
+    await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+
+    subject.next({
+      data: {
+        type: 'message',
+        content: result.summary,
+        catchmentData: {
+          analysisId,
+          locationId: matchedLocation.id,
+          locationName: matchedLocation.name,
+          radiusKm,
+          compositeScore: result.compositeScore,
+          subScores: result.subScores,
+          poiCount: result.poiCount,
+          center: { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) },
+          summary: result.summary,
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+    subject.complete();
+  }
+
+  private extractRadiusFromMessage(msg: string): number {
+    const match = msg.match(/(?:within|radius|distance|radius\s+of)\s*(\d+(?:\.\d+)?)\s*(?:km|kilometer|kilometers)/i);
+    if (match && match[1]) {
+      return Math.min(10.0, Math.max(0.1, parseFloat(match[1])));
+    }
+    const simpleKmMatch = msg.match(/(\d+(?:\.\d+)?)\s*(?:km|kilometer|kilometers)/i);
+    if (simpleKmMatch && simpleKmMatch[1]) {
+      return Math.min(10.0, Math.max(0.1, parseFloat(simpleKmMatch[1])));
+    }
+    return 2.0;
+  }
+
+  private findMatchingLocation(msg: string, locations: any[]): any | null {
+    if (locations.length === 0) return null;
+    const lower = msg.toLowerCase();
+
+    for (const loc of locations) {
+      if (loc.name && lower.includes(loc.name.toLowerCase())) {
+        return loc;
+      }
+    }
+
+    if (lower.includes('sudirman') || lower.includes('branch')) {
+      const sudirmanLoc = locations.find((l) => l.name && l.name.toLowerCase().includes('sudirman'));
+      if (sudirmanLoc) return sudirmanLoc;
+    }
+
+    return locations[0];
+  }
+
+  private extractCustomWeights(msg: string): Partial<Record<keyof CatchmentSubScores, number>> | undefined {
+    const lower = msg.toLowerCase();
+    const weights: Partial<Record<keyof CatchmentSubScores, number>> = {};
+    let hasCustom = false;
+
+    if (lower.includes('ignore competition') || lower.includes('no competition')) {
+      weights.competitionPenalty = 0;
+      hasCustom = true;
+    }
+    if (lower.includes('ignore saturation') || lower.includes('no saturation')) {
+      weights.networkSaturation = 0;
+      hasCustom = true;
+    }
+    return hasCustom ? weights : undefined;
+  }
+
+  private async executeHeatmapSkill(
+    userId: string,
+    userMessage: string,
+    subject: Subject<{ data: ChatStreamEvent }>,
+  ): Promise<void> {
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Determining the right action (Heatmap Visualization)...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const region = this.extractRegionFromMessage(userMessage);
+
+    if (!region || userMessage.trim().length < 8) {
+      const promptQuestion =
+        "I'd be happy to show you a heatmap! Which region or city (e.g. Kediri, Bandung, Jakarta) and business or category are you interested in?";
+      await this.saveMessage(userId, MessageSender.ASSISTANT, promptQuestion);
+      subject.next({
+        data: {
+          type: 'message',
+          content: promptQuestion,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+      subject.complete();
+      return;
+    }
+
+    subject.next({
+      data: {
+        type: 'status',
+        step: `Aggregating BigQuery POI location data for ${region}...`,
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    subject.next({
+      data: {
+        type: 'status',
+        step: 'Rendering weighted heatmap layer...',
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const maxRating = this.extractMaxRating(userMessage);
+    const customCategory = this.extractCustomCategory(userMessage);
+    const businessType = this.extractBusinessType(userMessage) || undefined;
+
+    const mode = maxRating !== undefined || customCategory ? 'custom_prompt' : 'business_based';
+
+    const result = await this.discoveryService.generateHeatmapDataset({
+      mode,
+      businessType,
+      region,
+      customCategory,
+      maxRating,
+    });
+
+    if (result.points.length === 0) {
+      const emptyMsg = `No POI data points found matching criteria in ${region}. Try broadening your filter or selecting a different area.`;
+      await this.saveMessage(userId, MessageSender.ASSISTANT, emptyMsg);
+      subject.next({
+        data: {
+          type: 'message',
+          content: emptyMsg,
+          timestamp: new Date().toISOString(),
+        },
+      });
+      subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+      subject.complete();
+      return;
+    }
+
+    const queryId = `hm-${Date.now().toString(36)}`;
+    await this.saveMessage(userId, MessageSender.ASSISTANT, result.summary);
+
+    subject.next({
+      data: {
+        type: 'message',
+        content: result.summary,
+        heatmapData: {
+          queryId,
+          mode,
+          businessType,
+          region,
+          pointCount: result.points.length,
+          points: result.points,
+          summary: result.summary,
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    subject.next({ data: { type: 'done', timestamp: new Date().toISOString() } });
+    subject.complete();
+  }
+
+  private extractMaxRating(msg: string): number | undefined {
+    const match = msg.match(/rating\s+(?:below|under|less\s+than|<)\s*(\d+(?:\.\d+)?)/i);
+    if (match && match[1]) {
+      return parseFloat(match[1]);
+    }
+    return undefined;
+  }
+
+  private extractCustomCategory(msg: string): string | undefined {
+    const lower = msg.toLowerCase();
+    if (lower.includes('preschool') || lower.includes('paud') || lower.includes('tk')) return 'preschool';
+    if (lower.includes('high school') || lower.includes('highschool') || lower.includes('sma') || lower.includes('smk')) return 'high_school';
+    if (lower.includes('school') || lower.includes('sekolah')) return 'school';
+    if (lower.includes('university') || lower.includes('college') || lower.includes('kampus')) return 'university';
+    if (lower.includes('hospital') || lower.includes('rumah sakit') || lower.includes('clinic')) return 'hospital';
+    if (lower.includes('park') || lower.includes('taman')) return 'park';
+    if (lower.includes('restaurant') || lower.includes('cafe') || lower.includes('kuliner')) return 'restaurant';
+    return undefined;
   }
 
   private async executeDiscoverySkill(

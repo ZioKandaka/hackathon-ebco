@@ -8,6 +8,13 @@
 
 **Input**: User description: "@original-prompt/heatmap-visualization.md"
 
+## Clarifications
+
+### Session 2026-08-10
+
+- Q: When a heatmap layer is generated, should the Google Map automatically pan and zoom to fit the geographic bounds of the returned heatmap data points? → A: Automatically fit map bounds (fitBounds) to the heatmap dataset upon rendering.
+- Q: How should the system handle queries that return a very large volume of data points (e.g., over 5,000 POI locations) to prevent browser performance degradation? → A: Cap query results in BigQuery to a maximum of 5,000 weighted spatial points per heatmap layer.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Business-Based Opportunity Density Heatmap (Priority: P1) 🎯 MVP
@@ -74,6 +81,8 @@ As a user navigating the map, I want new heatmap requests to automatically repla
 - **FR-006**: System MUST ensure heatmap layers render coexistent with existing location pins without removing, replacing, or obscuring map markers.
 - **FR-007**: System MUST replace any previously active heatmap layer upon generating a new heatmap request, strictly preventing multiple heatmap layers from stacking indefinitely.
 - **FR-008**: System MUST return a concise summary message in chat explaining the color intensity and criteria represented by the generated heatmap.
+- **FR-009**: System MUST automatically adjust the map viewport (`fitBounds`) to encompass the geographic bounds of the generated heatmap dataset upon rendering.
+- **FR-010**: System MUST cap BigQuery heatmap query aggregations to a maximum of 5,000 weighted spatial data points per generated layer to maintain browser rendering performance.
 
 ### Key Entities
 

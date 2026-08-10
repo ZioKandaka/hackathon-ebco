@@ -1,12 +1,11 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "model": "google-vertex/gemini-3.6-flash",
   "provider": {
-    "vertex-gemma": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Gemma (Vertex MaaS)",
+    "google-vertex": {
       "options": {
-        "baseURL": "https://aiplatform.googleapis.com/v1/projects/ebco-aidev-ziok/locations/global/endpoints/openapi",
-        "apiKey": "ya29.a0ARGnu0Z0QkgIkULmJjEn4xEXgfeJD8u6dkmbPwtfk5xEhN1NGGZ5dD1RVOs66EmMIQwUTm8Q0clvrUXGAtcSX2C6uJUPhpaHSFkz3voa_5Cl8E1j5ZSW1Y9uGLsMV4ykTUt3GEek0NU136FbZWvkJ4OHmfnYW1V_Zv5A3EVkBU6Yzj8FHKKkZzv8EwgxN-AoFBgkv6gbaCgYKAU0SARcSFQHGX2MiYOtnueFupfZv25SfAshxfw0207"
+        "project": "ebco-aidev-ziok",
+        "location": "global"
       }
     }
   }

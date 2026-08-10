@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { apiClient } from '../services/api.service';
 import { ChatSseService, ChatStreamEvent } from '../services/chat-sse.service';
 import { useDiscoveryStore } from './discovery.store';
+import { googleMapService } from '../services/google-map.service';
 
 export interface ChatMessageItem {
   id?: string;
@@ -59,6 +60,18 @@ export const useChatStore = defineStore('chat', () => {
           if (event.candidates && Array.isArray(event.candidates) && event.candidates.length > 0) {
             const discoveryStore = useDiscoveryStore();
             discoveryStore.setCandidates(event.candidates);
+          }
+
+          if (event.heatmapData && event.heatmapData.points) {
+            googleMapService.renderHeatmap(event.heatmapData.points, { fitBounds: true });
+          }
+
+          if (event.catchmentData && event.catchmentData.center) {
+            googleMapService.renderCatchmentCircle(
+              event.catchmentData.center,
+              event.catchmentData.radiusKm * 1000,
+              { fitBounds: true },
+            );
           }
         } else if (event.type === 'error' && event.error) {
           activeStatusStep.value = null;

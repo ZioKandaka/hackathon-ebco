@@ -1,8 +1,47 @@
+export interface HeatmapPoint {
+  lat: number;
+  lng: number;
+  weight: number;
+}
+
+export interface HeatmapDataPayload {
+  queryId: string;
+  mode: 'business_based' | 'custom_prompt';
+  businessType?: string;
+  region: string;
+  pointCount: number;
+  points: HeatmapPoint[];
+  summary: string;
+}
+
+export interface CatchmentSubScores {
+  demandDensity: number;
+  trafficProxy: number;
+  areaQuality: number;
+  competitionPenalty: number;
+  networkSaturation: number;
+  operationalVitality: number;
+}
+
+export interface CatchmentDataPayload {
+  analysisId: string;
+  locationId: string;
+  locationName: string;
+  radiusKm: number;
+  compositeScore: number;
+  subScores: CatchmentSubScores;
+  poiCount: number;
+  center: { lat: number; lng: number };
+  summary: string;
+}
+
 export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
   content?: string;
   candidates?: any[];
+  heatmapData?: HeatmapDataPayload;
+  catchmentData?: CatchmentDataPayload;
   error?: string;
   timestamp: string;
 }
