@@ -55,6 +55,7 @@ onUnmounted(() => {
   height: calc(100vh - 60px);
   z-index: 0;
   overflow: hidden;
+  pointer-events: auto;
 }
 
 .map-container {

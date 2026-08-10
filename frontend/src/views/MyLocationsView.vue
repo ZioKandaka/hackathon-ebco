@@ -1,6 +1,5 @@
 <template>
   <div class="view-container">
-    <BaseMap />
     <div class="feature-overlay">
       <h1>My Saved Locations</h1>
       <p class="subtitle">Your registered business branches and locations</p>
@@ -34,7 +33,6 @@
 
 <script setup lang="ts">
 import { onMounted } from 'vue';
-import BaseMap from '../components/map/BaseMap.vue';
 import { useLocationsStore, UserLocationItem } from '../stores/locations.store';
 import { useGoogleMap } from '../composables/useGoogleMap';
 
@@ -56,6 +54,7 @@ onMounted(async () => {
   width: 100vw;
   height: calc(100vh - 60px);
   overflow: hidden;
+  pointer-events: none;
 }
 
 .feature-overlay {

@@ -137,15 +137,16 @@ class GoogleMapService {
         fullscreenControl: false,
       });
     } else {
-      // Rebind container if needed without destroying instance
-      const parent = this.map.getDiv();
-      if (parent !== container) {
-        container.appendChild(parent.firstElementChild || parent);
+      const currentDiv = this.map.getDiv();
+      if (currentDiv && currentDiv !== container && !container.contains(currentDiv)) {
+        container.appendChild(currentDiv);
       }
       if (center) {
         this.map.setCenter(center);
       }
     }
+
+    this.triggerResize();
 
     if (this.pendingHeatmap) {
       const pending = this.pendingHeatmap;

@@ -1,6 +1,5 @@
 <template>
   <div class="view-container">
-    <BaseMap />
     <div class="feature-overlay">
       <h1>Density Heatmap</h1>
       <p>Visualize POI density and traffic distribution layers on the map.</p>
@@ -9,7 +8,6 @@
 </template>
 
 <script setup lang="ts">
-import BaseMap from '../components/map/BaseMap.vue';
 </script>
 
 <style scoped>
@@ -18,6 +16,7 @@ import BaseMap from '../components/map/BaseMap.vue';
   width: 100vw;
   height: calc(100vh - 60px);
   overflow: hidden;
+  pointer-events: none;
 }
 
 .feature-overlay {

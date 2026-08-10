@@ -1,7 +1,5 @@
 <template>
   <div class="view-container">
-    <BaseMap />
-
     <!-- Discover Control Overlay -->
     <div class="feature-overlay">
       <h1>Discover Candidates</h1>
@@ -59,7 +57,6 @@
 </template>
 
 <script setup lang="ts">
-import BaseMap from '../components/map/BaseMap.vue';
 import { useDiscoveryStore } from '../stores/discovery.store';
 
 const discoveryStore = useDiscoveryStore();
@@ -71,6 +68,7 @@ const discoveryStore = useDiscoveryStore();
   width: 100vw;
   height: calc(100vh - 60px);
   overflow: hidden;
+  pointer-events: none;
 }
 
 .feature-overlay {

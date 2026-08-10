@@ -1,0 +1,5 @@
+The chat orchestration doesn't maintain conversational memory across turns — each Gemini call only includes the current user message, not prior conversation history. This breaks follow-up references like "tell me more about spot 2" after a Discover response.
+
+Fix: before calling Gemini, fetch the user's recent chat history (e.g. last 10-20 messages via chatMessageRepository, already scoped by userId) and include it as prior conversation turns in the Gemini request (using the appropriate role mapping — user messages as 'user' role, assistant messages as 'model' role in the Vertex AI SDK's content format), so Gemini has full context of what was previously discussed, including prior Discover/Heatmap/Catchment results described in past assistant messages.
+
+Additionally, when a Discover response is generated, ensure the full structured candidate list (name, rank, score, rationale, lat/lng) is represented in the assistant message text that gets saved to history — not just a short summary — so future turns referencing "spot 2" or similar have enough detail in context to answer accurately without needing to re-run the Discover tool.

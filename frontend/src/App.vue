@@ -1,6 +1,7 @@
 <template>
   <div id="app">
     <NavBar />
+    <BaseMap v-if="authStore.isAuthenticated" />
     <main class="main-content">
       <router-view />
     </main>
@@ -11,6 +12,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
 import NavBar from './components/navigation/NavBar.vue';
+import BaseMap from './components/map/BaseMap.vue';
 import AiChatPanel from './components/chat/AiChatPanel.vue';
 import { useAuthStore } from './stores/auth.store';
 
@@ -37,5 +39,6 @@ body {
 .main-content {
   margin-top: 60px;
   flex: 1;
+  pointer-events: none;
 }
 </style>
