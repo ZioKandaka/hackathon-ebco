@@ -69,13 +69,13 @@ const discoveryStore = useDiscoveryStore();
 .view-container {
   position: relative;
   width: 100vw;
-  height: 100vh;
+  height: calc(100vh - 60px);
   overflow: hidden;
 }
 
 .feature-overlay {
   position: absolute;
-  top: 80px;
+  top: 1.5rem;
   left: 2rem;
   z-index: 10;
   background: rgba(255, 255, 255, 0.95);

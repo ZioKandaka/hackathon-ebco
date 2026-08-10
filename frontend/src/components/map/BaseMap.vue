@@ -49,10 +49,10 @@ onUnmounted(() => {
 <style scoped>
 .map-viewport-wrapper {
   position: fixed;
-  top: 0;
+  top: 60px;
   left: 0;
   width: 100vw;
-  height: 100vh;
+  height: calc(100vh - 60px);
   z-index: 0;
   overflow: hidden;
 }

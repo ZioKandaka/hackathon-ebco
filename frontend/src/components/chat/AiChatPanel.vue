@@ -51,11 +51,11 @@ onMounted(() => {
 <style scoped>
 .ai-chat-panel {
   position: fixed;
-  top: 0;
+  top: 60px;
   right: 0;
   width: 25vw;
   min-width: 320px;
-  height: 100vh;
+  height: calc(100vh - 60px);
   z-index: 1000;
   background-color: #ffffff;
   border-left: 1px solid #e2e8f0;

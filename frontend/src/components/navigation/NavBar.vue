@@ -34,13 +34,20 @@ async function handleLogout() {
 
 <style scoped>
 .navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  z-index: 1100;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 2rem;
+  padding: 0 2rem;
   background-color: #1a202c;
   color: white;
   font-family: system-ui, -apple-system, sans-serif;
+  box-sizing: border-box;
 }
 
 .nav-brand {

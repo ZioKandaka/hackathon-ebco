@@ -35,6 +35,7 @@ body {
 }
 
 .main-content {
+  margin-top: 60px;
   flex: 1;
 }
 </style>
