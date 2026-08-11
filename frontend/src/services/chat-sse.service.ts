@@ -48,7 +48,11 @@ export interface CatchmentDataPayload {
   locationId: string;
   locationName: string;
   category: string;
-  radiusKm: number;
+  boundaryType: 'radius' | 'time';
+  radiusKm?: number;
+  travelMode?: 'drive' | 'walk' | 'transit';
+  timeMinutes?: number;
+  polygonCoordinates?: Array<{ lat: number; lng: number }>;
   compositeScore: number;
   subScores: CatchmentSubScores;
   weights: CatchmentSubScores;
@@ -60,17 +64,12 @@ export interface CatchmentDataPayload {
   createdAt: string;
 }
 
-export interface AccessibilityDataPayload {
-  analysisId: string;
-  locationId: string;
+export interface TravelBoundaryDataPayload {
   locationName: string;
   travelMode: 'drive' | 'walk' | 'transit';
   timeMinutes: number;
-  compositeScore: number;
-  subScores: CatchmentSubScores;
-  poiCount: number;
   polygonCoordinates: Array<{ lat: number; lng: number }>;
-  radiusScoreDelta?: number;
+  center: { lat: number; lng: number };
   summary: string;
 }
 
@@ -99,7 +98,7 @@ export interface ChatStreamEvent {
   candidates?: any[];
   heatmapData?: HeatmapDataPayload;
   catchmentData?: CatchmentDataPayload;
-  accessibilityData?: AccessibilityDataPayload;
+  travelBoundaryData?: TravelBoundaryDataPayload;
   siteVisitData?: SiteVisitDataPayload;
   error?: string;
   timestamp: string;

@@ -15,5 +15,6 @@ import RegisterForm from '../components/auth/RegisterForm.vue';
   align-items: center;
   justify-content: center;
   background-color: #f7fafc;
+  pointer-events: auto;
 }
 </style>

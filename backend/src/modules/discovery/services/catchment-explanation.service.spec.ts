@@ -7,7 +7,7 @@ describe('CatchmentExplanationService', () => {
   const baseInput: CatchmentExplanationInput = {
     category: 'coffee_shop',
     locationName: 'Sudirman Branch',
-    radiusKm: 2,
+    boundaryDescription: '2km radius',
     subScores: {
       demandDensity: 80,
       trafficProxy: 70,

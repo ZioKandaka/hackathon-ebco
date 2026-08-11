@@ -14,8 +14,20 @@ export interface ToolCallExecutionMap {
     radiusKm?: number;
     filters?: Array<{ column: string; operator: string; value: string }>;
   }) => Promise<any>;
-  catchment_score?: (args: { category?: string; locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean }) => Promise<any>;
-  accessibility_analysis?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number }) => Promise<any>;
+  catchment_score?: (args: {
+    category?: string;
+    locationNameOrId?: string;
+    latitude?: number;
+    longitude?: number;
+    address?: string;
+    boundaryType?: 'radius' | 'time';
+    radiusKm?: number;
+    travelMode?: 'drive' | 'walk' | 'transit';
+    timeMinutes?: number;
+    ignoreCompetition?: boolean;
+    ignoreSaturation?: boolean;
+  }) => Promise<any>;
+  show_travel_boundary?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number }) => Promise<any>;
   ai_site_visit?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string }) => Promise<any>;
 }
 
@@ -27,7 +39,7 @@ export interface OrchestrationResult {
     candidates?: any[];
     heatmapData?: any;
     catchmentData?: any;
-    accessibilityData?: any;
+    travelBoundaryData?: any;
     siteVisitData?: any;
   };
 }
@@ -65,12 +77,13 @@ export class VertexAiOrchestratorService {
 
     const systemContext = `You are a Location Intelligence AI assistant.
 User's saved account locations: [${savedLocationNames}].
-Use available tools when the user's message implies location analysis, candidate discovery, heatmap visualization, catchment scoring, accessibility travel time analysis, AI site visit visual check, or adding a business branch.
-When the user refers to a previously discovered candidate spot (e.g. 'spot 2' or candidate name), use its latitude/longitude from the earlier conversation turn directly as the latitude/longitude arguments for catchment_score, accessibility_analysis, or ai_site_visit — do not assume it is a saved business location.
+Use available tools when the user's message implies location analysis, candidate discovery, heatmap visualization, catchment/accessibility scoring, travel-time boundary visualization, AI site visit visual check, or adding a business branch.
+Note: there is no separate "accessibility" tool — travel-time analysis is just catchment_score with boundaryType "time" (its default). Use show_travel_boundary only when the user wants to see the shape without a score.
+When the user refers to a previously discovered candidate spot (e.g. 'spot 2' or candidate name), use its latitude/longitude from the earlier conversation turn directly as the latitude/longitude arguments for catchment_score, show_travel_boundary, or ai_site_visit — do not assume it is a saved business location.
 If required arguments for a tool are missing, ask the user a clarifying question in plain text.
 If no tool is needed, respond directly in plain text.
 Always call the appropriate tool for the user's CURRENT message, even if an identical or very similar request appears earlier in the conversation history — a repeated request means the user wants the results shown again (e.g. after a page refresh), not a reminder that it was already answered. Never skip a tool call, or reply with only a reference to a previous answer, just because a similar request was already made earlier in this conversation.
-For catchment_score specifically: if a follow-up message only changes the business category (e.g. "what about a book store instead?"), reuse the same location/address and radius from the most recent catchment_score call in this conversation rather than asking the user to repeat it. After a successful catchment_score call, your reply MUST be only a short one-sentence pointer to the results panel (e.g. "Catchment analysis for book store at Jl. Sudirman is ready — see the panel on the left.") — never restate the sub-scores, weights, or explanations in chat text, since the panel already shows the full breakdown.`;
+For catchment_score specifically: if a follow-up message only changes the business category or the boundary (e.g. "what about a book store instead?" or "what about a 15 minute walk instead?"), reuse the same location/address from the most recent catchment_score call in this conversation rather than asking the user to repeat it. After a successful catchment_score call, your reply MUST be only a short one-sentence pointer to the results panel (e.g. "Catchment analysis for book store at Jl. Sudirman is ready — see the panel on the left.") — never restate the sub-scores, weights, or explanations in chat text, since the panel already shows the full breakdown.`;
 
     // Try Vertex AI function calling loop
     if (this.model) {
@@ -153,9 +166,9 @@ For catchment_score specifically: if a follow-up message only changes the busine
                   const res = await executors.catchment_score(args);
                   accumulatedPayloads.catchmentData = res;
                   toolResult = res;
-                } else if (toolName === 'accessibility_analysis' && executors.accessibility_analysis) {
-                  const res = await executors.accessibility_analysis(args);
-                  accumulatedPayloads.accessibilityData = res;
+                } else if (toolName === 'show_travel_boundary' && executors.show_travel_boundary) {
+                  const res = await executors.show_travel_boundary(args);
+                  accumulatedPayloads.travelBoundaryData = res;
                   toolResult = res;
                 } else if (toolName === 'ai_site_visit' && executors.ai_site_visit) {
                   const res = await executors.ai_site_visit(args);
@@ -211,15 +224,18 @@ For catchment_score specifically: if a follow-up message only changes the busine
 
     const hasDiscover = lower.includes('find') || lower.includes('discover') || lower.includes('where') || lower.includes('candidate') || lower.includes('spots') || lower.includes('spot');
     const hasHeatmap = lower.includes('heatmap') || lower.includes('heat map') || lower.includes('density map');
-    const hasCatchment = lower.includes('catchment') || lower.includes('catchment score') || lower.includes('analyze catchment');
     const hasAccessibility = lower.includes('accessible') || lower.includes('accessibility') || lower.includes('isochrone') || lower.includes('travel time') || lower.includes('drive time') || lower.includes('walk time');
+    // "show ... boundary/shape" (no score requested) routes to the lightweight boundary-only
+    // tool; everything else accessibility-flavored is just catchment_score with its time default.
+    const hasBoundaryOnly = hasAccessibility && (lower.includes('boundary') || lower.includes('shape')) && lower.includes('show');
+    const hasCatchment = lower.includes('catchment') || lower.includes('catchment score') || lower.includes('analyze catchment') || (hasAccessibility && !hasBoundaryOnly);
     const hasSiteVisit = lower.includes('site visit') || lower.includes('visual check') || lower.includes('what does spot') || lower.includes('look like') || lower.includes('street view');
     const hasAddBranch = (lower.includes('add') || lower.includes('create') || lower.includes('register')) && (lower.includes('branch') || lower.includes('location'));
 
     if (hasDiscover) plannedTools.push('discover_locations');
     if (hasHeatmap) plannedTools.push('generate_heatmap');
     if (hasCatchment) plannedTools.push('catchment_score');
-    if (hasAccessibility) plannedTools.push('accessibility_analysis');
+    if (hasBoundaryOnly) plannedTools.push('show_travel_boundary');
     if (hasSiteVisit) plannedTools.push('ai_site_visit');
     if (hasAddBranch) plannedTools.push('add_business');
 
@@ -256,14 +272,14 @@ For catchment_score specifically: if a follow-up message only changes the busine
         summaries.push(res.summary || 'Generated spatial density heatmap.');
       } else if (tool === 'catchment_score' && executors.catchment_score) {
         const targetLoc = userLocations[0]?.name || 'Sudirman Branch';
-        const res = await executors.catchment_score({ locationNameOrId: targetLoc, category: 'coffee_shop', radiusKm: 2.0 });
+        const res = await executors.catchment_score({ locationNameOrId: targetLoc, category: 'coffee_shop' });
         accumulatedPayloads.catchmentData = res;
         summaries.push(res.summary || 'Calculated location catchment score.');
-      } else if (tool === 'accessibility_analysis' && executors.accessibility_analysis) {
+      } else if (tool === 'show_travel_boundary' && executors.show_travel_boundary) {
         const targetLoc = userLocations[0]?.name || 'Sudirman Branch';
-        const res = await executors.accessibility_analysis({ locationNameOrId: targetLoc, travelMode: 'drive', timeMinutes: 10 });
-        accumulatedPayloads.accessibilityData = res;
-        summaries.push(res.summary || 'Calculated travel-time accessibility analysis.');
+        const res = await executors.show_travel_boundary({ locationNameOrId: targetLoc, travelMode: 'drive', timeMinutes: 10 });
+        accumulatedPayloads.travelBoundaryData = res;
+        summaries.push(res.summary || 'Showed travel-time boundary.');
       } else if (tool === 'ai_site_visit' && executors.ai_site_visit) {
         const targetLoc = userLocations[0]?.name || 'Sudirman Branch';
         const res = await executors.ai_site_visit({ locationNameOrId: targetLoc });

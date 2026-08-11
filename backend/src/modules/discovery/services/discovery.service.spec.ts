@@ -176,6 +176,7 @@ describe('DiscoveryService', () => {
       const result = await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
+        boundaryType: 'radius',
         radiusKm: 2.0,
         category: 'coffee_shop',
         locationName: 'Sudirman Branch',
@@ -210,6 +211,7 @@ describe('DiscoveryService', () => {
       const result = await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
+        boundaryType: 'radius',
         radiusKm: 2.0,
         category: 'coffee_shop',
         locationName: 'Sudirman Branch',
@@ -229,6 +231,7 @@ describe('DiscoveryService', () => {
       const clustered = await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
+        boundaryType: 'radius',
         radiusKm: 2.0,
         category: 'coffee_shop',
         locationName: 'Sudirman Branch',
@@ -244,6 +247,7 @@ describe('DiscoveryService', () => {
       const spread = await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
+        boundaryType: 'radius',
         radiusKm: 2.0,
         category: 'coffee_shop',
         locationName: 'Sudirman Branch',
@@ -259,6 +263,7 @@ describe('DiscoveryService', () => {
       await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
+        boundaryType: 'radius',
         radiusKm: 2.0,
         category: 'coffee_shop',
         locationName: 'Sudirman Branch',
@@ -279,6 +284,7 @@ describe('DiscoveryService', () => {
       const result = await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
+        boundaryType: 'radius',
         radiusKm: 2.0,
         category: 'coffee_shop',
         locationName: 'Sudirman Branch',
@@ -299,6 +305,7 @@ describe('DiscoveryService', () => {
       const result = await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
+        boundaryType: 'radius',
         radiusKm: 2.0,
         category: 'coffee_shop',
         locationName: 'Sudirman Branch',
@@ -309,29 +316,115 @@ describe('DiscoveryService', () => {
     });
   });
 
-  describe('calculateAccessibilityScore', () => {
-    it('should compute travel-time isochrone polygon and catchment score', async () => {
+  describe('calculateCatchmentScore with boundaryType "time" (merged former accessibility feature)', () => {
+    it('should compute a real isochrone polygon, score POIs strictly inside it, and reuse the exact same scoring engine as the radius path', async () => {
+      const polygon = [
+        { lat: -6.2000, lng: 106.8400 },
+        { lat: -6.2100, lng: 106.8500 },
+        { lat: -6.2200, lng: 106.8400 },
+      ];
+      mockBigQueryService.generateIsochronePolygon = jest.fn().mockResolvedValue(polygon);
+      mockBigQueryService.queryPoisInsidePolygon = jest.fn().mockResolvedValue([
+        { id: 'p1', name: 'School A', category: 'SD Negeri A', standardizedCategory: 'school', distanceMeters: 300, latitude: -6.2088, longitude: 106.8456, rating: 4.5, userRatingsTotal: 120, businessStatus: 'OPERATIONAL' },
+      ]);
+
+      const result = await service.calculateCatchmentScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        boundaryType: 'time',
+        travelMode: 'drive',
+        timeMinutes: 10,
+        category: 'coffee_shop',
+        locationName: 'Sudirman Branch',
+      });
+
+      expect(mockBigQueryService.generateIsochronePolygon).toHaveBeenCalledWith(-6.2088, 106.8456, 'drive', 10);
+      expect(mockBigQueryService.queryPoisInsidePolygon).toHaveBeenCalledWith(polygon, -6.2088, 106.8456, undefined);
+      expect(result).toBeDefined();
+      expect(result.boundaryType).toBe('time');
+      expect(result.travelMode).toBe('drive');
+      expect(result.timeMinutes).toBe(10);
+      expect(result.radiusKm).toBeUndefined();
+      expect(result.polygonCoordinates).toEqual(polygon);
+      expect(result.compositeScore).toBeGreaterThan(0);
+      expect(result.summary).toContain('10-minute drive');
+    });
+
+    it('should default to a 10-minute drive when boundaryType is "time" but mode/duration are omitted', async () => {
       mockBigQueryService.generateIsochronePolygon = jest.fn().mockResolvedValue([
         { lat: -6.2000, lng: 106.8400 },
         { lat: -6.2100, lng: 106.8500 },
         { lat: -6.2200, lng: 106.8400 },
       ]);
-      mockBigQueryService.queryPoisInsidePolygon = jest.fn().mockResolvedValue([
-        { id: 'p1', name: 'School A', category: 'school', latitude: -6.2088, longitude: 106.8456, rating: 4.5, userRatingsTotal: 120, businessStatus: 'OPERATIONAL' },
-      ]);
+      mockBigQueryService.queryPoisInsidePolygon = jest.fn().mockResolvedValue([]);
 
-      const result = await service.calculateAccessibilityScore({
+      const result = await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
-        travelMode: 'drive',
-        timeMinutes: 10,
+        boundaryType: 'time',
+        category: 'coffee_shop',
         locationName: 'Sudirman Branch',
       });
 
-      expect(result).toBeDefined();
-      expect(result.compositeScore).toBeGreaterThan(0);
-      expect(result.polygonCoordinates.length).toBeGreaterThan(0);
-      expect(result.summary).toContain('10-minute drive');
+      expect(mockBigQueryService.generateIsochronePolygon).toHaveBeenCalledWith(-6.2088, 106.8456, 'drive', 10);
+      expect(result.travelMode).toBe('drive');
+      expect(result.timeMinutes).toBe(10);
+    });
+
+    it('should pass regionFilter through to the polygon POI query', async () => {
+      mockBigQueryService.generateIsochronePolygon = jest.fn().mockResolvedValue([
+        { lat: -6.2000, lng: 106.8400 },
+        { lat: -6.2100, lng: 106.8500 },
+        { lat: -6.2200, lng: 106.8400 },
+      ]);
+      mockBigQueryService.queryPoisInsidePolygon = jest.fn().mockResolvedValue([]);
+
+      await service.calculateCatchmentScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        boundaryType: 'time',
+        category: 'coffee_shop',
+        locationName: 'Sudirman Branch',
+        regionFilter: 'Kota Jakarta Selatan',
+      });
+
+      expect(mockBigQueryService.queryPoisInsidePolygon).toHaveBeenCalledWith(
+        expect.anything(),
+        -6.2088,
+        106.8456,
+        'Kota Jakarta Selatan',
+      );
+    });
+  });
+
+  describe('generateTravelBoundary', () => {
+    it('should compute the isochrone polygon only — no POI query, no scoring', async () => {
+      const polygon = [
+        { lat: -6.2000, lng: 106.8400 },
+        { lat: -6.2100, lng: 106.8500 },
+        { lat: -6.2200, lng: 106.8400 },
+      ];
+      mockBigQueryService.generateIsochronePolygon = jest.fn().mockResolvedValue(polygon);
+      mockBigQueryService.queryPoisInsidePolygon = jest.fn();
+
+      const result = await service.generateTravelBoundary({
+        lat: -6.2088,
+        lng: 106.8456,
+        travelMode: 'walk',
+        timeMinutes: 15,
+      });
+
+      expect(mockBigQueryService.generateIsochronePolygon).toHaveBeenCalledWith(-6.2088, 106.8456, 'walk', 15);
+      expect(mockBigQueryService.queryPoisInsidePolygon).not.toHaveBeenCalled();
+      expect(result).toEqual({ travelMode: 'walk', timeMinutes: 15, polygonCoordinates: polygon });
+    });
+
+    it('should default to a 10-minute drive when unspecified', async () => {
+      mockBigQueryService.generateIsochronePolygon = jest.fn().mockResolvedValue([]);
+
+      await service.generateTravelBoundary({ lat: -6.2088, lng: 106.8456 });
+
+      expect(mockBigQueryService.generateIsochronePolygon).toHaveBeenCalledWith(-6.2088, 106.8456, 'drive', 10);
     });
   });
 });

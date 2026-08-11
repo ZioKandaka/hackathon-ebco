@@ -41,8 +41,20 @@ export class CatchmentAnalysisRun {
   @Column({ type: 'decimal', precision: 10, scale: 7 })
   longitude!: number;
 
-  @Column({ type: 'float', name: 'radius_km' })
-  radiusKm!: number;
+  @Column({ type: 'varchar', length: 10, name: 'boundary_type', default: 'radius' })
+  boundaryType!: 'radius' | 'time';
+
+  @Column({ type: 'float', name: 'radius_km', nullable: true })
+  radiusKm?: number;
+
+  @Column({ type: 'varchar', length: 10, name: 'travel_mode', nullable: true })
+  travelMode?: 'drive' | 'walk' | 'transit';
+
+  @Column({ type: 'int', name: 'time_minutes', nullable: true })
+  timeMinutes?: number;
+
+  @Column({ type: 'jsonb', name: 'polygon_coordinates', nullable: true })
+  polygonCoordinates?: Array<{ lat: number; lng: number }>;
 
   @Column({ type: 'int', name: 'composite_score' })
   compositeScore!: number;

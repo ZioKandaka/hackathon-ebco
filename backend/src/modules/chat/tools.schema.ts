@@ -89,9 +89,14 @@ export const toolDeclarations: FunctionDeclaration[] = [
       'category when one is given OR the location resolves to the user\'s own saved business (then omit category to ' +
       'default to that business\'s type); if the location is a bare address/candidate spot with no category ' +
       'mentioned, do NOT call this tool — ask the user in plain text which category they want instead. ' +
-      'IMPORTANT for follow-ups: if the user\'s message only changes the category (e.g. "what about a book store ' +
-      'instead?") after a prior catchment_score call in this conversation, reuse the exact same location/address ' +
-      'and radius from that prior call — do not ask the user to repeat the address. ' +
+      'The catchment boundary can be a distance radius OR a real road-network travel-time isochrone — this is one ' +
+      'unified scoring tool, not two. If the user gives neither, DEFAULT to boundaryType "time" with a 10-minute ' +
+      'drive (do NOT default to radius). Use boundaryType "radius" ONLY when the user explicitly gives a distance ' +
+      '(e.g. "within 2km", "500m radius"). If the user only wants to SEE the travel-time shape without a score ' +
+      '(e.g. "show me the 10 minute drive boundary"), do NOT call catchment_score — call show_travel_boundary instead. ' +
+      'IMPORTANT for follow-ups: if the user\'s message only changes the category or the boundary (e.g. "what about ' +
+      'a book store instead?" or "what about a 15 minute walk instead?") after a prior catchment_score call in this ' +
+      'conversation, reuse the exact same location/address from that prior call — do not ask the user to repeat it. ' +
       'After calling this tool, respond with ONLY a short one-sentence pointer to the panel (e.g. "Catchment ' +
       'analysis for [category] at [location] is ready — see the panel on the left.") — do NOT restate the ' +
       'individual scores, weights, or explanations in chat, since the panel already displays the full breakdown.',
@@ -108,15 +113,26 @@ export const toolDeclarations: FunctionDeclaration[] = [
         latitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit latitude coordinate of candidate or site' },
         longitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit longitude coordinate of candidate or site' },
         address: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional freeform street address to analyze on the fly — works for ANY address, not just saved businesses' },
-        radiusKm: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional analysis radius in kilometers (default 2.0; max 10.0)' },
+        boundaryType: {
+          type: FunctionDeclarationSchemaType.STRING,
+          enum: ['radius', 'time'],
+          description: 'Boundary shape for the analysis. Defaults to "time" (10-minute drive) when omitted — only set to "radius" when the user explicitly names a distance.',
+        },
+        radiusKm: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Distance radius in kilometers — only used when boundaryType is "radius" (default 2.0; max 10.0)' },
+        travelMode: { type: FunctionDeclarationSchemaType.STRING, enum: ['drive', 'walk', 'transit'], description: 'Travel mode — only used when boundaryType is "time" (default drive)' },
+        timeMinutes: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Travel time threshold in minutes — only used when boundaryType is "time" (default 10; max 30; user-customizable, e.g. "20 minutes")' },
         ignoreCompetition: { type: FunctionDeclarationSchemaType.BOOLEAN, description: 'Optional flag to ignore competition density penalty in scoring' },
         ignoreSaturation: { type: FunctionDeclarationSchemaType.BOOLEAN, description: 'Optional flag to ignore network saturation penalty in scoring' },
       },
     },
   },
   {
-    name: 'accessibility_analysis',
-    description: 'Evaluate location catchment using real road network travel time (isochrone) for driving, walking, or transit.',
+    name: 'show_travel_boundary',
+    description:
+      'Show ONLY the travel-time boundary shape on the map for driving, walking, or transit — does NOT query POIs ' +
+      'and does NOT run catchment scoring. Use this when the user just wants to see the shape (e.g. "show me the ' +
+      '10 minute drive boundary from my branch", "what does a 15 minute walk look like from here"). If the user ' +
+      'wants a score/analysis of the area, use catchment_score instead, not this tool.',
     parameters: {
       type: FunctionDeclarationSchemaType.OBJECT,
       properties: {
@@ -124,7 +140,7 @@ export const toolDeclarations: FunctionDeclaration[] = [
         latitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit latitude coordinate of candidate or site' },
         longitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit longitude coordinate of candidate or site' },
         address: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional freeform street address to analyze on the fly' },
-        travelMode: { type: FunctionDeclarationSchemaType.STRING, description: 'Travel mode: drive, walk, or transit (default drive)' },
+        travelMode: { type: FunctionDeclarationSchemaType.STRING, enum: ['drive', 'walk', 'transit'], description: 'Travel mode (default drive)' },
         timeMinutes: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Travel time threshold in minutes (default 10; max 30)' },
       },
     },

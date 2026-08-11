@@ -11,8 +11,8 @@
       <div v-else-if="catchmentStore.runs.length === 0" class="empty-state">
         <p>No catchment analysis yet.</p>
         <small>
-          Ask the AI Assistant, e.g. "Analyze the catchment for my Sudirman branch" or
-          "How good is catchment scoring at Jl. Braga No. 1, Bandung for a coffee shop?"
+          Ask the AI Assistant, e.g. "Analyze the catchment for my Sudirman branch" (defaults to a
+          10-minute drive) or "How good is a 2km radius at Jl. Braga No. 1, Bandung for a coffee shop?"
         </small>
       </div>
 
@@ -27,6 +27,7 @@
             @click="catchmentStore.selectRun(run)"
           >
             <span class="chip-category">{{ run.category }}</span>
+            <span class="chip-boundary">{{ boundaryLabel(run) }}</span>
             <span class="chip-score">{{ run.compositeScore }}</span>
           </button>
         </div>
@@ -35,7 +36,7 @@
           <div class="run-header">
             <p class="run-location">{{ catchmentStore.activeRun.locationName }}</p>
             <p class="run-meta">
-              {{ catchmentStore.activeRun.category }} &middot; {{ catchmentStore.activeRun.radiusKm }}km radius &middot;
+              {{ catchmentStore.activeRun.category }} &middot; {{ boundaryLabel(catchmentStore.activeRun) }} &middot;
               {{ catchmentStore.activeRun.poiCount }} POIs found
             </p>
             <div v-if="catchmentStore.activeRun.poiCount < 10" class="low-data-warning">
@@ -79,11 +80,17 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue';
-import { useCatchmentStore } from '../stores/catchment.store';
+import { useCatchmentStore, type CatchmentRun } from '../stores/catchment.store';
 import CatchmentRadarChart from '../components/catchment/CatchmentRadarChart.vue';
 import type { CatchmentSubScoreKey } from '../services/chat-sse.service';
 
 const catchmentStore = useCatchmentStore();
+
+function boundaryLabel(run: CatchmentRun): string {
+  return run.boundaryType === 'time'
+    ? `${run.timeMinutes}-min ${run.travelMode}`
+    : `${run.radiusKm}km radius`;
+}
 
 const SUB_SCORE_LABELS: Record<CatchmentSubScoreKey, string> = {
   demandDensity: 'Demand Density',
@@ -204,6 +211,12 @@ h1 {
   max-width: 90px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.chip-boundary {
+  font-size: 0.625rem;
+  color: #a0aec0;
+  white-space: nowrap;
 }
 
 .chip-score {

@@ -6,7 +6,6 @@ import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
-import { OrchestratorService } from './orchestrator.service';
 import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
 import { CatchmentHistoryService } from '../discovery/services/catchment-history.service';
 
@@ -17,7 +16,6 @@ describe('ChatService', () => {
   let mockLocationsService: any;
   let mockDiscoveryService: any;
   let mockSiteVisitService: any;
-  let mockOrchestratorService: any;
   let mockVertexAiOrchestratorService: any;
   let mockCatchmentHistoryService: any;
 
@@ -84,54 +82,63 @@ describe('ChatService', () => {
         ],
         summary: 'Darker red areas indicate high minimarket demand density in Kediri.',
       }),
-      calculateCatchmentScore: jest.fn().mockResolvedValue({
-        compositeScore: 82,
-        subScores: {
-          demandDensity: 88,
-          trafficProxy: 75,
-          areaQuality: 84,
-          competitionPenalty: 15,
-          networkSaturation: 0,
-          operationalVitality: 95,
-        },
-        weights: {
-          demandDensity: 0.3,
-          trafficProxy: 0.2,
-          areaQuality: 0.2,
-          competitionPenalty: 0.15,
-          networkSaturation: 0.1,
-          operationalVitality: 0.05,
-        },
-        poiCount: 140,
-        contributingPois: {
-          demandDensity: [],
-          trafficProxy: [],
-          areaQuality: [],
-          competitionPenalty: [],
-          networkSaturation: [],
-          operationalVitality: [],
-        },
-        explanations: null,
-        summary: 'Catchment analysis for Sudirman Branch within 2km: Composite Score 82/100.',
+      // Mirrors the real calculateCatchmentScore's boundary resolution/echoing so both radius-
+      // and time-boundary tests get a faithful response shape without duplicating the real logic.
+      calculateCatchmentScore: jest.fn().mockImplementation((args: any) => {
+        const isTime = args.boundaryType === 'time';
+        return Promise.resolve({
+          compositeScore: 82,
+          subScores: {
+            demandDensity: 88,
+            trafficProxy: 75,
+            areaQuality: 84,
+            competitionPenalty: 15,
+            networkSaturation: 0,
+            operationalVitality: 95,
+          },
+          weights: {
+            demandDensity: 0.3,
+            trafficProxy: 0.2,
+            areaQuality: 0.2,
+            competitionPenalty: 0.15,
+            networkSaturation: 0.1,
+            operationalVitality: 0.05,
+          },
+          poiCount: 140,
+          contributingPois: {
+            demandDensity: [],
+            trafficProxy: [],
+            areaQuality: [],
+            competitionPenalty: [],
+            networkSaturation: [],
+            operationalVitality: [],
+          },
+          explanations: null,
+          boundaryType: isTime ? 'time' : 'radius',
+          radiusKm: isTime ? undefined : (args.radiusKm ?? 2.0),
+          travelMode: isTime ? (args.travelMode || 'drive') : undefined,
+          timeMinutes: isTime ? (args.timeMinutes ?? 10) : undefined,
+          polygonCoordinates: isTime
+            ? [
+                { lat: -6.2000, lng: 106.8400 },
+                { lat: -6.2100, lng: 106.8500 },
+                { lat: -6.2200, lng: 106.8400 },
+              ]
+            : undefined,
+          summary: 'Catchment analysis ready.',
+        });
       }),
-      calculateAccessibilityScore: jest.fn().mockResolvedValue({
-        compositeScore: 78,
-        subScores: {
-          demandDensity: 82,
-          trafficProxy: 72,
-          areaQuality: 84,
-          competitionPenalty: 12,
-          networkSaturation: 0,
-          operationalVitality: 94,
-        },
-        poiCount: 112,
-        polygonCoordinates: [
-          { lat: -6.2000, lng: 106.8400 },
-          { lat: -6.2100, lng: 106.8500 },
-          { lat: -6.2200, lng: 106.8400 },
-        ],
-        summary: 'Accessibility analysis for Sudirman Branch (10-minute drive): Composite Score 78/100.',
-      }),
+      generateTravelBoundary: jest.fn().mockImplementation((args: any) =>
+        Promise.resolve({
+          travelMode: args.travelMode || 'drive',
+          timeMinutes: args.timeMinutes ?? 10,
+          polygonCoordinates: [
+            { lat: -6.2000, lng: 106.8400 },
+            { lat: -6.2100, lng: 106.8500 },
+            { lat: -6.2200, lng: 106.8400 },
+          ],
+        }),
+      ),
     };
 
     mockSiteVisitService = {
@@ -149,8 +156,6 @@ describe('ChatService', () => {
         summary: 'AI Site Visit Report for Sudirman Branch: Visual Score 85/100.',
       }),
     };
-
-    mockOrchestratorService = {};
 
     mockCatchmentHistoryService = {
       saveRun: jest.fn().mockResolvedValue({}),
@@ -183,10 +188,14 @@ describe('ChatService', () => {
           const radiusKm = msg.includes('3km') ? 3.0 : 2.0;
           const cs = await executors.catchment_score({ locationNameOrId: 'Sudirman Branch', radiusKm });
           return { textResponse: cs.summary, accumulatedPayloads: { catchmentData: cs } };
+        } else if (msg.includes('boundary') && msg.includes('show')) {
+          subject.next({ data: { type: 'status', step: 'Calling show_travel_boundary...' } });
+          const tb = await executors.show_travel_boundary({ locationNameOrId: 'Sudirman Branch', travelMode: 'drive', timeMinutes: 10 });
+          return { textResponse: tb.summary, accumulatedPayloads: { travelBoundaryData: tb } };
         } else if (msg.includes('accessible') || msg.includes('accessibility')) {
-          subject.next({ data: { type: 'status', step: 'Calling accessibility_analysis...' } });
-          const acc = await executors.accessibility_analysis({ locationNameOrId: 'Sudirman Branch', travelMode: 'drive', timeMinutes: 10 });
-          return { textResponse: acc.summary, accumulatedPayloads: { accessibilityData: acc } };
+          subject.next({ data: { type: 'status', step: 'Calling catchment_score...' } });
+          const cs = await executors.catchment_score({ locationNameOrId: 'Sudirman Branch', boundaryType: 'time', travelMode: 'drive', timeMinutes: 10 });
+          return { textResponse: cs.summary, accumulatedPayloads: { catchmentData: cs } };
         } else if (msg.includes('site visit') || msg.includes('Site Visit')) {
           subject.next({ data: { type: 'status', step: 'Calling ai_site_visit...' } });
           const sv = await executors.ai_site_visit({ locationNameOrId: 'Sudirman Branch' });
@@ -228,10 +237,6 @@ describe('ChatService', () => {
         {
           provide: CatchmentHistoryService,
           useValue: mockCatchmentHistoryService,
-        },
-        {
-          provide: OrchestratorService,
-          useValue: mockOrchestratorService,
         },
         {
           provide: VertexAiOrchestratorService,
@@ -335,9 +340,61 @@ describe('ChatService', () => {
       );
 
       expect(mockDiscoveryService.calculateCatchmentScore).toHaveBeenCalledWith(
-        expect.objectContaining({ category: 'coffee_shop', locationName: 'Sudirman Branch', radiusKm: 2.0 }),
+        expect.objectContaining({ category: 'coffee_shop', locationName: 'Sudirman Branch' }),
       );
       expect(result.category).toBe('coffee_shop');
+    });
+
+    it('should default boundaryType to "time" (not radius) when the user specifies neither', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.calculateCatchmentScore).toHaveBeenCalledWith(
+        expect.objectContaining({ boundaryType: 'time' }),
+      );
+      expect(result.boundaryType).toBe('time');
+      expect(result.travelMode).toBe('drive');
+      expect(result.timeMinutes).toBe(10);
+      expect(result.radiusKm).toBeUndefined();
+    });
+
+    it('should infer boundaryType "radius" when the user explicitly gives a radiusKm without an explicit boundaryType', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch', radiusKm: 3 },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.calculateCatchmentScore).toHaveBeenCalledWith(
+        expect.objectContaining({ boundaryType: 'radius', radiusKm: 3 }),
+      );
+      expect(result.boundaryType).toBe('radius');
+    });
+
+    it('should respect an explicit boundaryType with a customizable time threshold (e.g. "20 minutes")', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch', boundaryType: 'time', travelMode: 'walk', timeMinutes: 20 },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.calculateCatchmentScore).toHaveBeenCalledWith(
+        expect.objectContaining({ boundaryType: 'time', travelMode: 'walk', timeMinutes: 20 }),
+      );
+      expect(result.travelMode).toBe('walk');
+      expect(result.timeMinutes).toBe(20);
     });
 
     it('should let an explicit category override the saved business type (e.g. a chained "what about a book store instead" follow-up)', async () => {
@@ -428,6 +485,40 @@ describe('ChatService', () => {
 
       expect(mockCatchmentHistoryService.saveRun).toHaveBeenCalled();
       expect(result.compositeScore).toBe(82);
+    });
+  });
+
+  describe('executeShowTravelBoundarySkill', () => {
+    it('should render only the boundary shape, with no scoring/panel/history involvement', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeShowTravelBoundarySkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch', travelMode: 'walk', timeMinutes: 15 },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.generateTravelBoundary).toHaveBeenCalledWith(
+        expect.objectContaining({ travelMode: 'walk', timeMinutes: 15 }),
+      );
+      expect(mockDiscoveryService.calculateCatchmentScore).not.toHaveBeenCalled();
+      expect(mockCatchmentHistoryService.saveRun).not.toHaveBeenCalled();
+      expect(result.travelMode).toBe('walk');
+      expect(result.timeMinutes).toBe(15);
+      expect(result.polygonCoordinates.length).toBeGreaterThan(0);
+    });
+
+    it('should ask a clarifying question instead of guessing when no location is given at all', async () => {
+      const result = await service.executeShowTravelBoundarySkill(
+        'user-uuid-123',
+        {},
+        [],
+        {} as any,
+      );
+
+      expect(result.summary).toContain('Which location');
+      expect(mockDiscoveryService.generateTravelBoundary).not.toHaveBeenCalled();
     });
   });
 
@@ -603,7 +694,7 @@ describe('ChatService', () => {
       });
     }, 5000);
 
-    it('should execute Accessibility Analysis skill for travel-time requests', (done) => {
+    it('should execute the unified Catchment Score skill with a time boundary for accessibility-style requests (008 merged into 007)', (done) => {
       const userId = 'user-uuid-123';
       const message = 'Check how accessible my Sudirman branch is within a 10 minute drive';
       const events: any[] = [];
@@ -617,12 +708,39 @@ describe('ChatService', () => {
         complete: () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
-          expect(events[0].step).toContain('accessibility_analysis');
-          const messageEvent = events.find((e) => e.type === 'message' && e.accessibilityData);
+          expect(events[0].step).toContain('catchment_score');
+          const messageEvent = events.find((e) => e.type === 'message' && e.catchmentData);
           expect(messageEvent).toBeDefined();
-          expect(messageEvent.accessibilityData.compositeScore).toBe(78);
-          expect(messageEvent.accessibilityData.travelMode).toBe('drive');
-          expect(messageEvent.accessibilityData.timeMinutes).toBe(10);
+          expect(messageEvent.catchmentData.boundaryType).toBe('time');
+          expect(messageEvent.catchmentData.compositeScore).toBe(82);
+          expect(messageEvent.catchmentData.travelMode).toBe('drive');
+          expect(messageEvent.catchmentData.timeMinutes).toBe(10);
+          expect(messageEvent.catchmentData.polygonCoordinates.length).toBeGreaterThan(0);
+          done();
+        },
+      });
+    }, 5000);
+
+    it('should execute the lightweight show_travel_boundary skill (shape only, no scoring) when the user just wants to see the boundary', (done) => {
+      const userId = 'user-uuid-123';
+      const message = 'show me the 10 minute drive boundary from my Sudirman branch';
+      const events: any[] = [];
+
+      const stream$ = service.streamChatResponse(userId, message);
+
+      stream$.subscribe({
+        next: (event) => {
+          events.push(event.data);
+        },
+        complete: () => {
+          expect(events.length).toBeGreaterThan(0);
+          expect(events[0].type).toBe('status');
+          expect(events[0].step).toContain('show_travel_boundary');
+          const messageEvent = events.find((e) => e.type === 'message' && e.travelBoundaryData);
+          expect(messageEvent).toBeDefined();
+          expect(messageEvent.travelBoundaryData.travelMode).toBe('drive');
+          expect(messageEvent.travelBoundaryData.timeMinutes).toBe(10);
+          expect(messageEvent.catchmentData).toBeUndefined();
           done();
         },
       });

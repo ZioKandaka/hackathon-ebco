@@ -82,9 +82,11 @@ export const useChatStore = defineStore('chat', () => {
             catchmentStore.addRun(event.catchmentData);
           }
 
-          if (event.accessibilityData && event.accessibilityData.polygonCoordinates) {
+          if (event.travelBoundaryData && event.travelBoundaryData.polygonCoordinates) {
+            // Boundary-only: shape on the map only, deliberately not touching the catchment
+            // store/panel/history — this is not a scored run.
             googleMapService.renderIsochronePolygon(
-              event.accessibilityData.polygonCoordinates,
+              event.travelBoundaryData.polygonCoordinates,
               { fitBounds: true },
             );
           }

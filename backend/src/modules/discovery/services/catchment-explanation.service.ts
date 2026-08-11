@@ -26,7 +26,9 @@ export interface ContributingPoiFact {
 export interface CatchmentExplanationInput {
   category: string;
   locationName: string;
-  radiusKm: number;
+  // e.g. "2km radius" or "10-minute drive" — boundary-type-agnostic on purpose, since the same
+  // explanation prompt now serves both distance- and travel-time-bounded catchment runs.
+  boundaryDescription: string;
   subScores: Record<CatchmentSubScoreKey, number>;
   weights: Record<CatchmentSubScoreKey, number>;
   contributingPois: Record<CatchmentSubScoreKey, ContributingPoiFact[]>;
@@ -90,7 +92,7 @@ export class CatchmentExplanationService {
 ${poiLines}`;
     }).join('\n\n');
 
-    const prompt = `You are explaining a location catchment analysis for a "${input.category}" business at "${input.locationName}", analyzed within a ${input.radiusKm}km radius.
+    const prompt = `You are explaining a location catchment analysis for a "${input.category}" business at "${input.locationName}", analyzed within a ${input.boundaryDescription}.
 
 Here are the 6 sub-scores and the REAL, deterministically-computed POI facts behind each one:
 

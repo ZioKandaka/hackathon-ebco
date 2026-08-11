@@ -10,7 +10,11 @@ export interface CatchmentRun {
   id: string;
   locationName: string;
   category: string;
-  radiusKm: number;
+  boundaryType: 'radius' | 'time';
+  radiusKm?: number;
+  travelMode?: 'drive' | 'walk' | 'transit';
+  timeMinutes?: number;
+  polygonCoordinates?: Array<{ lat: number; lng: number }>;
   compositeScore: number;
   subScores: CatchmentSubScores;
   weights: CatchmentSubScores;
@@ -30,7 +34,11 @@ interface RawHistoryRun {
   category: string;
   latitude: string | number;
   longitude: string | number;
-  radiusKm: number;
+  boundaryType: 'radius' | 'time';
+  radiusKm?: number;
+  travelMode?: 'drive' | 'walk' | 'transit';
+  timeMinutes?: number;
+  polygonCoordinates?: Array<{ lat: number; lng: number }>;
   compositeScore: number;
   subScores: CatchmentSubScores;
   weights: CatchmentSubScores;
@@ -46,7 +54,11 @@ function normalizeHistoryRun(raw: RawHistoryRun): CatchmentRun {
     id: raw.id,
     locationName: raw.locationName,
     category: raw.category,
+    boundaryType: raw.boundaryType,
     radiusKm: raw.radiusKm,
+    travelMode: raw.travelMode,
+    timeMinutes: raw.timeMinutes,
+    polygonCoordinates: raw.polygonCoordinates,
     compositeScore: raw.compositeScore,
     subScores: raw.subScores,
     weights: raw.weights,
@@ -64,7 +76,11 @@ function normalizeLiveRun(payload: CatchmentDataPayload): CatchmentRun {
     id: payload.analysisId,
     locationName: payload.locationName,
     category: payload.category,
+    boundaryType: payload.boundaryType,
     radiusKm: payload.radiusKm,
+    travelMode: payload.travelMode,
+    timeMinutes: payload.timeMinutes,
+    polygonCoordinates: payload.polygonCoordinates,
     compositeScore: payload.compositeScore,
     subScores: payload.subScores,
     weights: payload.weights,
@@ -107,7 +123,16 @@ export const useCatchmentStore = defineStore('catchment', () => {
     activeRun.value = run;
     selectedSubScore.value = null;
     googleMapService.clearNearbyPoiMarkers();
-    googleMapService.renderCatchmentCircle(run.center, run.radiusKm * 1000, { fitBounds: true });
+
+    // Only one boundary shape at a time — a circle for a distance-radius run, the real
+    // road-network isochrone polygon for a time-boundary run. Each renderer already clears the
+    // other type internally, so switching between run types on the map is always clean.
+    if (run.boundaryType === 'time' && run.polygonCoordinates && run.polygonCoordinates.length > 0) {
+      googleMapService.renderIsochronePolygon(run.polygonCoordinates, { fitBounds: true });
+    } else if (run.radiusKm) {
+      googleMapService.renderCatchmentCircle(run.center, run.radiusKm * 1000, { fitBounds: true });
+    }
+
     googleMapService.addMarker(CENTER_MARKER_ID, {
       position: run.center,
       title: `${run.category} — ${run.locationName}`,
@@ -133,6 +158,7 @@ export const useCatchmentStore = defineStore('catchment', () => {
     selectedSubScore.value = null;
     googleMapService.clearNearbyPoiMarkers();
     googleMapService.removeCatchmentCircle();
+    googleMapService.removeIsochronePolygon();
     googleMapService.removeMarker(CENTER_MARKER_ID);
   }
 

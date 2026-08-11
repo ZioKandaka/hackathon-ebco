@@ -38,6 +38,7 @@ describe('CatchmentHistoryService', () => {
         category: 'coffee_shop',
         latitude: -6.2088,
         longitude: 106.8456,
+        boundaryType: 'radius',
         radiusKm: 2.0,
         compositeScore: 82,
         subScores: {

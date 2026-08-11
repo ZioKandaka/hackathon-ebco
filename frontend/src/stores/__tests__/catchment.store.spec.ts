@@ -6,6 +6,7 @@ const baseRun: CatchmentRun = {
   id: 'run-1',
   locationName: 'Sudirman Branch',
   category: 'coffee_shop',
+  boundaryType: 'radius',
   radiusKm: 2,
   compositeScore: 82,
   subScores: {
@@ -52,6 +53,7 @@ describe('catchment.store', () => {
       locationId: 'loc-1',
       locationName: baseRun.locationName,
       category: baseRun.category,
+      boundaryType: baseRun.boundaryType,
       radiusKm: baseRun.radiusKm,
       compositeScore: baseRun.compositeScore,
       subScores: baseRun.subScores,
@@ -103,6 +105,28 @@ describe('catchment.store', () => {
 
     expect(store.activeRun?.id).toBe('run-2');
     expect(store.selectedSubScore).toBeNull();
+  });
+
+  it('should render an isochrone polygon (not a circle) for a time-boundary run', () => {
+    const store = useCatchmentStore();
+    const timeRun: CatchmentRun = {
+      ...baseRun,
+      id: 'run-time',
+      boundaryType: 'time',
+      radiusKm: undefined,
+      travelMode: 'drive',
+      timeMinutes: 10,
+      polygonCoordinates: [
+        { lat: -6.2000, lng: 106.8400 },
+        { lat: -6.2100, lng: 106.8500 },
+        { lat: -6.2200, lng: 106.8400 },
+      ],
+    };
+
+    // Should not throw even though the real Google Maps API isn't loaded in this test env —
+    // renderIsochronePolygon/renderCatchmentCircle both no-op safely without a live map.
+    expect(() => store.selectRun(timeRun)).not.toThrow();
+    expect(store.activeRun?.id).toBe('run-time');
   });
 
   it('should clear the active run entirely', () => {

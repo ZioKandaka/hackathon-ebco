@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { BigQueryDiscoveryService, RawPoiItem, RadiusPoiItem } from './bigquery-discovery.service';
+import { BigQueryDiscoveryService, RawPoiItem, RadiusPoiItem, LatLngPoint } from './bigquery-discovery.service';
 import { PoiRelevanceClassifierService } from './poi-relevance-classifier.service';
 import { RawHeatmapFilter, describeHeatmapFilter, validateHeatmapFilters } from './heatmap-filter.util';
 import {
@@ -48,14 +48,11 @@ export interface CatchmentCalculationResult {
   poiCount: number;
   contributingPois: Record<CatchmentSubScoreKey, ContributingPoiFact[]>;
   explanations: Record<CatchmentSubScoreKey, string> | null;
-  summary: string;
-}
-
-export interface AccessibilityCalculationResult {
-  compositeScore: number;
-  subScores: CatchmentSubScores;
-  poiCount: number;
-  polygonCoordinates: Array<{ lat: number; lng: number }>;
+  boundaryType: 'radius' | 'time';
+  radiusKm?: number;
+  travelMode?: 'drive' | 'walk' | 'transit';
+  timeMinutes?: number;
+  polygonCoordinates?: LatLngPoint[];
   summary: string;
 }
 
@@ -191,13 +188,15 @@ export class DiscoveryService {
   async calculateCatchmentScore(options: {
     lat: number;
     lng: number;
-    radiusKm: number;
     category: string;
     locationName?: string;
     regionFilter?: string;
+    boundaryType: 'radius' | 'time';
+    radiusKm?: number;
+    travelMode?: 'drive' | 'walk' | 'transit';
+    timeMinutes?: number;
     customWeights?: Partial<Record<keyof CatchmentSubScores, number>>;
   }): Promise<CatchmentCalculationResult> {
-    const radiusMeters = Math.min(10000, Math.max(100, Math.round(options.radiusKm * 1000)));
     const locName = options.locationName || 'location';
 
     const [peerCategories, demandCategories] = await Promise.all([
@@ -205,12 +204,48 @@ export class DiscoveryService {
       this.poiRelevanceClassifierService.classifyDemandDriverCategories(options.category),
     ]);
 
-    const rawPois = await this.bigqueryDiscoveryService.queryPoisWithinRadius(
-      options.lat,
-      options.lng,
-      radiusMeters,
-      options.regionFilter,
-    );
+    let rawPois: RadiusPoiItem[];
+    let radiusKm: number | undefined;
+    let travelMode: 'drive' | 'walk' | 'transit' | undefined;
+    let timeMinutes: number | undefined;
+    let polygonCoordinates: LatLngPoint[] | undefined;
+    let boundaryDescription: string;
+    let expandSuggestion: string;
+
+    if (options.boundaryType === 'time') {
+      travelMode = options.travelMode || 'drive';
+      timeMinutes = Math.min(30, Math.max(1, options.timeMinutes ?? 10));
+
+      polygonCoordinates = await this.bigqueryDiscoveryService.generateIsochronePolygon(
+        options.lat,
+        options.lng,
+        travelMode,
+        timeMinutes,
+      );
+
+      rawPois = await this.bigqueryDiscoveryService.queryPoisInsidePolygon(
+        polygonCoordinates,
+        options.lat,
+        options.lng,
+        options.regionFilter,
+      );
+
+      boundaryDescription = `${timeMinutes}-minute ${travelMode}`;
+      expandSuggestion = `Try increasing the time to ${timeMinutes + 5} or ${timeMinutes + 10} minutes.`;
+    } else {
+      radiusKm = Math.min(10, Math.max(0.1, options.radiusKm ?? 2.0));
+      const radiusMeters = Math.round(radiusKm * 1000);
+
+      rawPois = await this.bigqueryDiscoveryService.queryPoisWithinRadius(
+        options.lat,
+        options.lng,
+        radiusMeters,
+        options.regionFilter,
+      );
+
+      boundaryDescription = `${radiusKm}km radius`;
+      expandSuggestion = `Try expanding the radius to ${(radiusKm * 1.5).toFixed(1)}km or ${(radiusKm * 2.5).toFixed(1)}km.`;
+    }
 
     const poiCount = rawPois.length;
 
@@ -237,12 +272,17 @@ export class DiscoveryService {
     // Network Saturation is deliberately NOT a restatement of Competition Penalty's count: the
     // source POI dataset has no brand/chain column, so true same-brand cannibalization can't be
     // measured. Instead this measures CONCENTRATION — what fraction of competitors are clustered
-    // in the inner half of the radius vs. spread across the full radius. Two spots can have the
-    // identical competitor count but very different saturation if one is a tight cluster right at
-    // the site and the other is spread thinly across the whole area. Penalty only kicks in past
+    // tightly near the exact site vs. spread across the wider catchment area. Two spots can have
+    // the identical competitor count but very different saturation if one is a tight cluster right
+    // at the site and the other is spread thinly across the whole area. Penalty only kicks in past
     // the same >2 competitor threshold the original spec called for.
-    const innerRadiusMeters = radiusMeters * 0.5;
-    const competitorsInInnerRing = competitors.filter((p) => p.distanceMeters <= innerRadiusMeters);
+    //
+    // A flat real-world distance (not a fraction of the boundary) on purpose: "clustered right on
+    // top of this spot" is a fixed physical concept independent of whether the outer boundary is a
+    // 2km circle or an irregular 10-minute-drive isochrone, and using a flat constant keeps the
+    // metric comparable between a radius run and a time run for the same location.
+    const NETWORK_SATURATION_INNER_RING_METERS = 750;
+    const competitorsInInnerRing = competitors.filter((p) => p.distanceMeters <= NETWORK_SATURATION_INNER_RING_METERS);
     const concentrationRatio = competitors.length > 0 ? competitorsInInnerRing.length / competitors.length : 0;
     const networkSaturation = competitors.length <= 2 ? 0 : Math.min(100, Math.round(concentrationRatio * 100));
 
@@ -299,7 +339,7 @@ export class DiscoveryService {
       ? await this.catchmentExplanationService.generateExplanations({
           category: options.category,
           locationName: locName,
-          radiusKm: options.radiusKm,
+          boundaryDescription,
           subScores: { demandDensity, trafficProxy, areaQuality, competitionPenalty, networkSaturation, operationalVitality },
           weights,
           contributingPois,
@@ -307,8 +347,8 @@ export class DiscoveryService {
       : null;
 
     const summary = poiCount === 0
-      ? `No POIs found within ${options.radiusKm}km of ${locName}. Try expanding the radius to ${(options.radiusKm * 1.5).toFixed(1)}km or ${(options.radiusKm * 2.5).toFixed(1)}km.`
-      : `Catchment analysis for ${locName} (${options.category}) within ${options.radiusKm}km:\n\n` +
+      ? `No POIs found within ${boundaryDescription} of ${locName}. ${expandSuggestion}`
+      : `Catchment analysis for ${locName} (${options.category}), ${boundaryDescription}:\n\n` +
         `• Overall Composite Score: ${compositeScore} / 100\n\n` +
         `Sub-score Breakdown:\n` +
         `- Demand Density: ${demandDensity}/100\n` +
@@ -332,21 +372,24 @@ export class DiscoveryService {
       poiCount,
       contributingPois,
       explanations,
+      boundaryType: options.boundaryType,
+      radiusKm,
+      travelMode,
+      timeMinutes,
+      polygonCoordinates,
       summary,
     };
   }
 
-  async calculateAccessibilityScore(options: {
+  /** Computes and renders a travel-time boundary shape only — no BigQuery POI query, no scoring. */
+  async generateTravelBoundary(options: {
     lat: number;
     lng: number;
     travelMode?: 'drive' | 'walk' | 'transit';
     timeMinutes?: number;
-    businessType?: string;
-    locationName?: string;
-    previousRadiusScore?: number;
-  }): Promise<AccessibilityCalculationResult> {
+  }): Promise<{ travelMode: 'drive' | 'walk' | 'transit'; timeMinutes: number; polygonCoordinates: LatLngPoint[] }> {
     const travelMode = options.travelMode || 'drive';
-    const timeMinutes = Math.min(30, Math.max(1, options.timeMinutes || 10));
+    const timeMinutes = Math.min(30, Math.max(1, options.timeMinutes ?? 10));
 
     const polygonCoordinates = await this.bigqueryDiscoveryService.generateIsochronePolygon(
       options.lat,
@@ -355,92 +398,6 @@ export class DiscoveryService {
       timeMinutes,
     );
 
-    const rawPois = await this.bigqueryDiscoveryService.queryPoisInsidePolygon(
-      polygonCoordinates,
-    );
-
-    const poiCount = rawPois.length;
-    const bType = (options.businessType || 'business').toLowerCase();
-    const demandCategories = this.bigqueryDiscoveryService.getDemandCategoriesForType(bType);
-
-    const demandPois = rawPois.filter((p) =>
-      demandCategories.some((dc) => (p.category || '').toLowerCase().includes(dc)),
-    );
-    const demandDensity = Math.min(100, Math.max(10, Math.round((demandPois.length / Math.max(1, poiCount)) * 120)));
-
-    const totalRatings = rawPois.reduce((acc, p) => acc + (p.userRatingsTotal || 0), 0);
-    const trafficProxy = Math.min(100, Math.max(10, Math.round(Math.log10(totalRatings + 1) * 28)));
-
-    const validRatings = rawPois.filter((p) => p.rating && p.rating > 0);
-    const avgRating = validRatings.length > 0
-      ? validRatings.reduce((acc, p) => acc + (p.rating || 4.0), 0) / validRatings.length
-      : 4.0;
-    const areaQuality = Math.min(100, Math.max(20, Math.round((avgRating / 5.0) * 100)));
-
-    const competitors = rawPois.filter((p) => (p.category || '').toLowerCase().includes(bType));
-    const competitionPenalty = Math.min(100, Math.round(competitors.length * 12));
-
-    const networkSaturation = Math.min(100, Math.max(0, (competitors.length - 2) * 20));
-
-    const activePois = rawPois.filter((p) => (p.businessStatus || 'OPERATIONAL') === 'OPERATIONAL');
-    const operationalVitality = poiCount > 0
-      ? Math.round((activePois.length / poiCount) * 100)
-      : 90;
-
-    const weights = {
-      demandDensity: 0.30,
-      trafficProxy: 0.20,
-      areaQuality: 0.20,
-      competitionPenalty: 0.15,
-      networkSaturation: 0.10,
-      operationalVitality: 0.05,
-    };
-
-    const rawComposite =
-      (demandDensity * weights.demandDensity) +
-      (trafficProxy * weights.trafficProxy) +
-      (areaQuality * weights.areaQuality) -
-      (competitionPenalty * weights.competitionPenalty) -
-      (networkSaturation * weights.networkSaturation) +
-      (operationalVitality * weights.operationalVitality);
-
-    const compositeScore = Math.min(100, Math.max(1, Math.round(rawComposite)));
-
-    const locName = options.locationName || 'location';
-    const modeLabel = travelMode === 'drive' ? 'drive' : travelMode === 'walk' ? 'walk' : 'transit';
-
-    let comparisonNote = '';
-    if (options.previousRadiusScore !== undefined) {
-      const delta = compositeScore - options.previousRadiusScore;
-      const sign = delta >= 0 ? `+${delta}` : `${delta}`;
-      comparisonNote = `\n• Comparison vs 2km Radius: ${sign} points (${compositeScore} ${modeLabel}-time vs ${options.previousRadiusScore} radius, reflecting actual road network geometry and barriers).\n`;
-    }
-
-    const summary =
-      `Accessibility analysis for ${locName} (${timeMinutes}-minute ${modeLabel}):\n\n` +
-      `• Travel-Time Composite Score: ${compositeScore} / 100` +
-      comparisonNote +
-      `\nSub-score Breakdown:\n` +
-      `- Demand Density: ${demandDensity}/100 (${demandPois.length} reachable demand POIs)\n` +
-      `- Traffic Proxy: ${trafficProxy}/100\n` +
-      `- Area Quality: ${areaQuality}/100 (${avgRating.toFixed(1)} avg rating)\n` +
-      `- Competition Penalty: ${competitionPenalty}/100 (${competitors.length} competitors inside isochrone)\n` +
-      `- Network Saturation: ${networkSaturation}/100\n` +
-      `- Operational Vitality: ${operationalVitality}/100 (${activePois.length}/${poiCount} operating POIs)`;
-
-    return {
-      compositeScore,
-      subScores: {
-        demandDensity,
-        trafficProxy,
-        areaQuality,
-        competitionPenalty,
-        networkSaturation,
-        operationalVitality,
-      },
-      poiCount,
-      polygonCoordinates,
-      summary,
-    };
+    return { travelMode, timeMinutes, polygonCoordinates };
   }
 }

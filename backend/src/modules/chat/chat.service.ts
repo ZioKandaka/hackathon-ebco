@@ -9,7 +9,6 @@ import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
 import { CatchmentHistoryService } from '../discovery/services/catchment-history.service';
 import { CatchmentSubScoreKey, ContributingPoiFact } from '../discovery/services/catchment-explanation.service';
-import { OrchestratorService } from './orchestrator.service';
 import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
 
 export interface HeatmapPoint {
@@ -49,7 +48,11 @@ export interface CatchmentDataPayload {
   locationId: string;
   locationName: string;
   category: string;
-  radiusKm: number;
+  boundaryType: 'radius' | 'time';
+  radiusKm?: number;
+  travelMode?: 'drive' | 'walk' | 'transit';
+  timeMinutes?: number;
+  polygonCoordinates?: Array<{ lat: number; lng: number }>;
   compositeScore: number;
   subScores: CatchmentSubScores;
   weights: CatchmentSubScores;
@@ -61,17 +64,12 @@ export interface CatchmentDataPayload {
   createdAt: string;
 }
 
-export interface AccessibilityDataPayload {
-  analysisId: string;
-  locationId: string;
+export interface TravelBoundaryDataPayload {
   locationName: string;
   travelMode: 'drive' | 'walk' | 'transit';
   timeMinutes: number;
-  compositeScore: number;
-  subScores: CatchmentSubScores;
-  poiCount: number;
   polygonCoordinates: Array<{ lat: number; lng: number }>;
-  radiusScoreDelta?: number;
+  center: { lat: number; lng: number };
   summary: string;
 }
 
@@ -100,7 +98,7 @@ export interface ChatStreamEvent {
   candidates?: any[];
   heatmapData?: HeatmapDataPayload;
   catchmentData?: CatchmentDataPayload;
-  accessibilityData?: AccessibilityDataPayload;
+  travelBoundaryData?: TravelBoundaryDataPayload;
   siteVisitData?: SiteVisitDataPayload;
   error?: string;
   timestamp: string;
@@ -133,7 +131,6 @@ export class ChatService {
     private readonly discoveryService: DiscoveryService,
     private readonly siteVisitService: SiteVisitService,
     private readonly catchmentHistoryService: CatchmentHistoryService,
-    private readonly orchestratorService: OrchestratorService,
     private readonly vertexAiOrchestratorService: VertexAiOrchestratorService,
   ) {}
 
@@ -182,7 +179,7 @@ export class ChatService {
             discover_locations: (args) => this.executeDiscoverySkill(userId, args, subject),
             generate_heatmap: (args) => this.executeHeatmapSkill(userId, args, userLocations, subject),
             catchment_score: (args) => this.executeCatchmentSkill(userId, args, userLocations, subject),
-            accessibility_analysis: (args) => this.executeAccessibilitySkill(userId, args, userLocations, subject),
+            show_travel_boundary: (args) => this.executeShowTravelBoundarySkill(userId, args, userLocations, subject),
             ai_site_visit: (args) => this.executeSiteVisitSkill(userId, args, userLocations, subject),
           },
           subject,
@@ -197,7 +194,7 @@ export class ChatService {
             candidates: result.accumulatedPayloads.candidates,
             heatmapData: result.accumulatedPayloads.heatmapData,
             catchmentData: result.accumulatedPayloads.catchmentData,
-            accessibilityData: result.accumulatedPayloads.accessibilityData,
+            travelBoundaryData: result.accumulatedPayloads.travelBoundaryData,
             siteVisitData: result.accumulatedPayloads.siteVisitData,
             timestamp: new Date().toISOString(),
           },
@@ -257,67 +254,21 @@ export class ChatService {
     return siteVisitData;
   }
 
-  async executeAccessibilitySkill(
-    userId: string,
-    args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number },
-    userLocations: any[],
-    subject: Subject<{ data: ChatStreamEvent }>,
-  ): Promise<any> {
-    const matchedLocation = await this.resolveLocationContext(args, userLocations);
-
-    if (!matchedLocation) {
-      const availableNames = userLocations.map((l) => l.name).join(', ');
-      const summary = userLocations.length === 0
-        ? "Which location would you like to analyze for accessibility? You can specify a saved location name, a candidate spot, a street address, or coordinates."
-        : `I couldn't locate "${args.locationNameOrId || args.address || 'that location'}". Your saved locations are: ${availableNames}. Please specify a saved location, candidate spot, or full street address!`;
-      return { summary };
-    }
-
-    const travelMode = args.travelMode || 'drive';
-    const timeMinutes = args.timeMinutes || 10;
-
-    const history = await this.getHistory(userId);
-    let previousRadiusScore: number | undefined = undefined;
-    for (const msg of history) {
-      if (msg.sender === MessageSender.ASSISTANT && msg.content.includes('Overall Composite Score:')) {
-        const scoreMatch = msg.content.match(/Overall Composite Score:\s*(\d+)/i);
-        if (scoreMatch && scoreMatch[1]) {
-          previousRadiusScore = parseInt(scoreMatch[1], 10);
-        }
-      }
-    }
-
-    const result = await this.discoveryService.calculateAccessibilityScore({
-      lat: Number(matchedLocation.latitude),
-      lng: Number(matchedLocation.longitude),
-      travelMode,
-      timeMinutes,
-      businessType: matchedLocation.businessType,
-      locationName: matchedLocation.name,
-      previousRadiusScore,
-    });
-
-    const analysisId = `acc-${Date.now().toString(36)}`;
-    const accessibilityData: AccessibilityDataPayload = {
-      analysisId,
-      locationId: matchedLocation.id || 'adhoc-loc',
-      locationName: matchedLocation.name,
-      travelMode,
-      timeMinutes,
-      compositeScore: result.compositeScore,
-      subScores: result.subScores,
-      poiCount: result.poiCount,
-      polygonCoordinates: result.polygonCoordinates,
-      radiusScoreDelta: previousRadiusScore !== undefined ? result.compositeScore - previousRadiusScore : undefined,
-      summary: result.summary,
-    };
-
-    return accessibilityData;
-  }
-
   async executeCatchmentSkill(
     userId: string,
-    args: { category?: string; locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean },
+    args: {
+      category?: string;
+      locationNameOrId?: string;
+      latitude?: number;
+      longitude?: number;
+      address?: string;
+      boundaryType?: 'radius' | 'time';
+      radiusKm?: number;
+      travelMode?: 'drive' | 'walk' | 'transit';
+      timeMinutes?: number;
+      ignoreCompetition?: boolean;
+      ignoreSaturation?: boolean;
+    },
     userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
   ): Promise<any> {
@@ -343,7 +294,11 @@ export class ChatService {
       };
     }
 
-    const radiusKm = Math.min(10, Math.max(0.1, args.radiusKm || 2.0));
+    // Defaults to a 10-minute drive isochrone, not a radius — real road-network reachability is
+    // the better default; a plain distance circle is only used when the user explicitly asks for
+    // one (e.g. "within 2km").
+    const boundaryType: 'radius' | 'time' = args.boundaryType || (args.radiusKm !== undefined ? 'radius' : 'time');
+
     const customWeights: any = {};
     if (args.ignoreCompetition) customWeights.competitionPenalty = 0;
     if (args.ignoreSaturation) customWeights.networkSaturation = 0;
@@ -351,23 +306,31 @@ export class ChatService {
     const result = await this.discoveryService.calculateCatchmentScore({
       lat: Number(matchedLocation.latitude),
       lng: Number(matchedLocation.longitude),
-      radiusKm,
       category,
       locationName: matchedLocation.name,
       regionFilter: matchedLocation.regency || matchedLocation.province,
+      boundaryType,
+      radiusKm: args.radiusKm,
+      travelMode: args.travelMode,
+      timeMinutes: args.timeMinutes,
       customWeights,
     });
 
     const analysisId = `cs-${Date.now().toString(36)}`;
     const createdAt = new Date().toISOString();
     const center = { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) };
+    const boundaryLabel = boundaryType === 'time' ? `a ${result.timeMinutes}-minute ${result.travelMode}` : `${result.radiusKm}km`;
 
     const catchmentData: CatchmentDataPayload = {
       analysisId,
       locationId: matchedLocation.id || 'adhoc-loc',
       locationName: matchedLocation.name,
       category,
-      radiusKm,
+      boundaryType,
+      radiusKm: result.radiusKm,
+      travelMode: result.travelMode,
+      timeMinutes: result.timeMinutes,
+      polygonCoordinates: result.polygonCoordinates,
       compositeScore: result.compositeScore,
       subScores: result.subScores,
       weights: result.weights,
@@ -375,7 +338,7 @@ export class ChatService {
       contributingPois: result.contributingPois,
       explanations: result.explanations,
       center,
-      summary: `Catchment analysis for ${category} at ${matchedLocation.name} is ready — see the panel on the left.`,
+      summary: `Catchment analysis for ${category} at ${matchedLocation.name} (within ${boundaryLabel}) is ready — see the panel on the left.`,
       createdAt,
     };
 
@@ -385,7 +348,6 @@ export class ChatService {
         category,
         latitude: center.lat,
         longitude: center.lng,
-        radiusKm,
         ...result,
       });
     } catch (err: any) {
@@ -395,6 +357,47 @@ export class ChatService {
     }
 
     return catchmentData;
+  }
+
+  /**
+   * Shows only the travel-time boundary shape on the map — no BigQuery POI query, no scoring, no
+   * panel/history entry. For when the user just wants to see the shape (e.g. "show me the 10
+   * minute drive boundary from my branch"), not a full catchment analysis.
+   */
+  async executeShowTravelBoundarySkill(
+    userId: string,
+    args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number },
+    userLocations: any[],
+    subject: Subject<{ data: ChatStreamEvent }>,
+  ): Promise<any> {
+    const matchedLocation = await this.resolveLocationContext(args, userLocations);
+
+    if (!matchedLocation) {
+      const availableNames = userLocations.map((l) => l.name).join(', ');
+      const summary = userLocations.length === 0
+        ? "Which location would you like to see a travel-time boundary for? You can specify a saved location name, a candidate spot, a street address, or coordinates."
+        : `I couldn't locate "${args.locationNameOrId || args.address || 'that location'}". Your saved locations are: ${availableNames}. Please specify a saved location, candidate spot, or full street address!`;
+      return { summary };
+    }
+
+    const center = { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) };
+    const result = await this.discoveryService.generateTravelBoundary({
+      lat: center.lat,
+      lng: center.lng,
+      travelMode: args.travelMode,
+      timeMinutes: args.timeMinutes,
+    });
+
+    const travelBoundaryData: TravelBoundaryDataPayload = {
+      locationName: matchedLocation.name,
+      travelMode: result.travelMode,
+      timeMinutes: result.timeMinutes,
+      polygonCoordinates: result.polygonCoordinates,
+      center,
+      summary: `Here's the ${result.timeMinutes}-minute ${result.travelMode} boundary around ${matchedLocation.name}.`,
+    };
+
+    return travelBoundaryData;
   }
 
   async executeHeatmapSkill(

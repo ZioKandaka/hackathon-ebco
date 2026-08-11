@@ -298,6 +298,8 @@ export class BigQueryDiscoveryService {
 
   async queryPoisInsidePolygon(
     polygonPath: LatLngPoint[],
+    originLat: number,
+    originLng: number,
     regencyOrProvince?: string,
   ): Promise<RadiusPoiItem[]> {
     if (!polygonPath || polygonPath.length < 3) return [];
@@ -312,7 +314,7 @@ export class BigQueryDiscoveryService {
 
     try {
       let whereClause = `WHERE ST_CONTAINS(ST_GEOGFROMTEXT(@wktPolygon), ST_GEOGPOINT(longitude, latitude))`;
-      const params: Record<string, any> = { wktPolygon };
+      const params: Record<string, any> = { wktPolygon, lat: originLat, lng: originLng };
 
       if (regencyOrProvince) {
         whereClause += ` AND (LOWER(regency_code) LIKE LOWER(@region) OR LOWER(province_code) LIKE LOWER(@region) OR LOWER(regency) LIKE LOWER(@region) OR LOWER(province) LIKE LOWER(@region))`;
@@ -329,7 +331,8 @@ export class BigQueryDiscoveryService {
           longitude,
           rating,
           user_rating_count as userRatingsTotal,
-          business_status as businessStatus
+          business_status as businessStatus,
+          ST_DISTANCE(ST_GEOGPOINT(longitude, latitude), ST_GEOGPOINT(@lng, @lat)) as distanceMeters
         FROM \`${this.datasetName}\`
         ${whereClause}
         LIMIT 5000
@@ -343,7 +346,7 @@ export class BigQueryDiscoveryService {
         standardizedCategory: r.standardizedCategory || 'other',
         latitude: Number(r.latitude),
         longitude: Number(r.longitude),
-        distanceMeters: 0,
+        distanceMeters: Number(Math.floor(r.distanceMeters) || 0),
         rating: r.rating ? Number(r.rating) : 4.0,
         userRatingsTotal: r.userRatingsTotal ? Number(r.userRatingsTotal) : 10,
         businessStatus: r.businessStatus || 'OPERATIONAL',

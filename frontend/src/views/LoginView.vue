@@ -15,5 +15,6 @@ import LoginForm from '../components/auth/LoginForm.vue';
   align-items: center;
   justify-content: center;
   background-color: #f7fafc;
+  pointer-events: auto;
 }
 </style>
