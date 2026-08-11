@@ -522,18 +522,22 @@ export class ChatService {
       count,
     );
 
-    const summary =
+    // Detailed, used only for the DB record — never surfaced in chat text (the candidate list
+    // and map pins already show this; the chat reply should just confirm completion).
+    const detailedSummary =
       candidates.length === 0
         ? `No strong candidate spots found matching low-competition criteria for ${args.businessType} in ${args.region}. Try broadening the target area.`
-        : (() => {
-            const formattedList = candidates
-              .map(
-                (c) =>
-                  `Spot ${c.rank}: ${c.name} (Score: ${c.demandScore}/100, Latitude: ${c.latitude}, Longitude: ${c.longitude}, Competition: ${c.competitionCount})\n  • Rationale: ${c.rationale}`,
-              )
-              .join('\n\n');
-            return `Here are the top candidate spots for ${args.businessType} in ${args.region}:\n\n${formattedList}\n\nPins have been rendered on your map. Click any pin to inspect details.`;
-          })();
+        : candidates
+            .map(
+              (c) =>
+                `Spot ${c.rank}: ${c.name} (Score: ${c.demandScore}/100, Latitude: ${c.latitude}, Longitude: ${c.longitude}, Competition: ${c.competitionCount})\n  • Rationale: ${c.rationale}`,
+            )
+            .join('\n\n');
+
+    const chatSummary =
+      candidates.length === 0
+        ? `No strong candidate spots found for ${args.businessType} in ${args.region}. Try broadening the target area.`
+        : `Found ${candidates.length} candidate spot${candidates.length === 1 ? '' : 's'} for ${args.businessType} in ${args.region} — see the panel on the left.`;
 
     let saved: { id: string; createdAt: Date };
     try {
@@ -541,7 +545,7 @@ export class ChatService {
         businessType: args.businessType,
         region: args.region,
         candidates,
-        summary,
+        summary: detailedSummary,
       });
     } catch (err: any) {
       // Persistence failure shouldn't take down an otherwise-successful search — the user still
@@ -555,7 +559,7 @@ export class ChatService {
       businessType: args.businessType,
       region: args.region,
       candidates,
-      summary,
+      summary: chatSummary,
       createdAt: saved.createdAt.toISOString(),
     };
 

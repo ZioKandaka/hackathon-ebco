@@ -7,6 +7,7 @@ import { useCatchmentStore } from './catchment.store';
 import { useSiteVisitStore } from './siteVisit.store';
 import { useHeatmapStore } from './heatmap.store';
 import { googleMapService } from '../services/google-map.service';
+import { router } from '../router';
 
 export interface ChatMessageItem {
   id?: string;
@@ -65,6 +66,7 @@ export const useChatStore = defineStore('chat', () => {
             // in the Site Visit panel, which addRun() selects and centers the map on.
             const siteVisitStore = useSiteVisitStore();
             siteVisitStore.addRun(event.siteVisitData);
+            router.push('/site-visit');
           }
 
           messages.value.push(newMsg);
@@ -72,16 +74,19 @@ export const useChatStore = defineStore('chat', () => {
           if (event.discoveryData && event.discoveryData.candidates) {
             const discoveryStore = useDiscoveryStore();
             discoveryStore.addRun(event.discoveryData);
+            router.push('/discover');
           }
 
           if (event.heatmapData && event.heatmapData.points) {
             const heatmapStore = useHeatmapStore();
             heatmapStore.addRun(event.heatmapData);
+            router.push('/heatmap');
           }
 
           if (event.catchmentData && event.catchmentData.center) {
             const catchmentStore = useCatchmentStore();
             catchmentStore.addRun(event.catchmentData);
+            router.push('/catchment');
           }
 
           if (event.travelBoundaryData && event.travelBoundaryData.polygonCoordinates) {

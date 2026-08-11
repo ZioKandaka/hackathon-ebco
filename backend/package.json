@@ -10,7 +10,12 @@
     "start:prod": "node dist/main",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
+    "migration:generate": "npm run typeorm -- migration:generate",
+    "migration:run": "npm run typeorm -- migration:run",
+    "migration:revert": "npm run typeorm -- migration:revert",
+    "migration:run:prod": "node dist/database/run-migrations.js"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^8.3.1",
@@ -48,6 +53,7 @@
     "jest": "^29.5.0",
     "supertest": "^6.3.3",
     "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.1.3"
   }
 }

@@ -99,28 +99,6 @@
         </ul>
       </template>
     </div>
-
-    <!-- Candidate Detail Modal on Pin Click (US2) -->
-    <div v-if="discoveryStore.selectedCandidate" class="detail-modal">
-      <header class="modal-header">
-        <h3>Spot #{{ discoveryStore.selectedCandidate.rank }} Details</h3>
-        <button @click="discoveryStore.clearSelectedCandidate" class="btn-close">×</button>
-      </header>
-      <div class="modal-body">
-        <p class="spot-title">{{ discoveryStore.selectedCandidate.name }}</p>
-        <div class="metric-row">
-          <span>Demand Score:</span>
-          <strong>{{ discoveryStore.selectedCandidate.demandScore }} / 100</strong>
-        </div>
-        <div class="metric-row">
-          <span>Competitors (1km):</span>
-          <strong>{{ discoveryStore.selectedCandidate.competitionCount }} nearby</strong>
-        </div>
-        <div class="rationale-box">
-          <p>{{ discoveryStore.selectedCandidate.rationale }}</p>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -380,64 +358,5 @@ h1 {
   color: #319795;
   font-weight: 600;
   text-align: right;
-}
-
-/* Detail Modal */
-.detail-modal {
-  position: absolute;
-  bottom: 2rem;
-  left: 2rem;
-  z-index: 20;
-  background: white;
-  padding: 1.25rem 1.5rem;
-  border-radius: 12px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.18);
-  width: 320px;
-  font-family: system-ui, -apple-system, sans-serif;
-  pointer-events: auto;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.75rem;
-}
-
-.modal-header h3 {
-  margin: 0;
-  font-size: 1rem;
-  color: #1a202c;
-}
-
-.btn-close {
-  background: transparent;
-  border: none;
-  font-size: 1.25rem;
-  cursor: pointer;
-  color: #a0aec0;
-}
-
-.spot-title {
-  margin: 0 0 0.75rem 0;
-  font-weight: 600;
-  color: #2b6cb0;
-}
-
-.metric-row {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
-  font-size: 0.875rem;
-  color: #4a5568;
-}
-
-.rationale-box {
-  margin-top: 0.75rem;
-  padding: 0.625rem 0.875rem;
-  background-color: #f7fafc;
-  border-radius: 6px;
-  font-size: 0.8125rem;
-  color: #2d3748;
 }
 </style>
