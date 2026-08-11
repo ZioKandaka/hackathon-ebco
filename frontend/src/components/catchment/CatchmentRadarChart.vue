@@ -55,16 +55,21 @@ const props = defineProps<{
 
 const size = computed(() => props.size || 240);
 const center = computed(() => size.value / 2);
-const maxRadius = computed(() => size.value / 2 - 32);
+// Leave a generous margin for the label text runs (see comment on `axes` below) — the ring
+// itself only needs to stop well short of the viewBox edge, not right up against it.
+const maxRadius = computed(() => size.value / 2 - 50);
 
 // Competition Penalty and Network Saturation are "lower is better" — invert them for the chart
 // so every axis reads bigger-shape-is-better, matching how the composite score treats them.
+// Kept short deliberately: each label is drawn as a single SVG text run anchored at the axis
+// tip, and a long string (e.g. "Area Quality") extends past the chart's own viewBox edge and
+// gets hard-clipped by the SVG's default overflow:hidden — this is not just a font-size tweak.
 const axes: { key: CatchmentSubScoreKey; label: string; invert: boolean }[] = [
   { key: 'demandDensity', label: 'Demand', invert: false },
   { key: 'trafficProxy', label: 'Traffic', invert: false },
-  { key: 'areaQuality', label: 'Area Quality', invert: false },
-  { key: 'competitionPenalty', label: 'Low Competition', invert: true },
-  { key: 'networkSaturation', label: 'Low Saturation', invert: true },
+  { key: 'areaQuality', label: 'Quality', invert: false },
+  { key: 'competitionPenalty', label: 'Low Comp.', invert: true },
+  { key: 'networkSaturation', label: 'Low Sat.', invert: true },
   { key: 'operationalVitality', label: 'Vitality', invert: false },
 ];
 
@@ -96,7 +101,7 @@ const dataPoints = computed(() =>
 );
 
 function labelPoint(index: number): { x: number; y: number } {
-  return pointFor(index, 1.22);
+  return pointFor(index, 1.16);
 }
 
 function labelAnchor(index: number): string {
@@ -120,6 +125,9 @@ function labelAnchor(index: number): string {
   width: 100%;
   max-width: 280px;
   height: auto;
+  /* Safety net on top of the geometry fix above: never hard-clip a label that still runs
+     slightly past the viewBox edge (e.g. at very small panel widths). */
+  overflow: visible;
 }
 
 .radar-ring {
@@ -144,7 +152,7 @@ function labelAnchor(index: number): string {
 }
 
 .radar-label {
-  font-size: 9px;
+  font-size: 8.5px;
   fill: #4a5568;
   font-family: system-ui, -apple-system, sans-serif;
 }
