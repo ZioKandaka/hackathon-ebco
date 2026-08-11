@@ -6,6 +6,7 @@ import { useDiscoveryStore } from './discovery.store';
 import { useCatchmentStore } from './catchment.store';
 import { useSiteVisitStore } from './siteVisit.store';
 import { useHeatmapStore } from './heatmap.store';
+import { useLocationsStore } from './locations.store';
 import { googleMapService } from '../services/google-map.service';
 import { router } from '../router';
 
@@ -87,6 +88,12 @@ export const useChatStore = defineStore('chat', () => {
             const catchmentStore = useCatchmentStore();
             catchmentStore.addRun(event.catchmentData);
             router.push('/catchment');
+          }
+
+          if (event.locationData && event.locationData.id) {
+            const locationsStore = useLocationsStore();
+            locationsStore.addLocation(event.locationData);
+            router.push('/my-locations');
           }
 
           if (event.travelBoundaryData && event.travelBoundaryData.polygonCoordinates) {

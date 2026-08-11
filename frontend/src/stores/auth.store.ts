@@ -1,11 +1,29 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { apiClient } from '../services/api.service';
+import { useChatStore } from './chat.store';
+import { useCatchmentStore } from './catchment.store';
+import { useSiteVisitStore } from './siteVisit.store';
+import { useDiscoveryStore } from './discovery.store';
+import { useHeatmapStore } from './heatmap.store';
+import { useLocationsStore } from './locations.store';
 
 export interface User {
   id: string;
   email: string;
   createdAt: string;
+}
+
+// Every feature store is a singleton that lives for the whole tab session — without this, logging
+// out and into a different account leaves the previous account's messages/runs/map pins sitting
+// in memory (and chat.store's historyLoaded guard would permanently skip re-fetching them).
+function resetFeatureStores() {
+  useChatStore().resetStore();
+  useCatchmentStore().resetStore();
+  useSiteVisitStore().resetStore();
+  useDiscoveryStore().resetStore();
+  useHeatmapStore().resetStore();
+  useLocationsStore().resetStore();
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -19,6 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function register(email: string, password: string, passwordConfirm: string) {
     loading.value = true;
     error.value = null;
+    resetFeatureStores();
     try {
       const response = await apiClient.post<{ user: User; accessToken?: string }>('/auth/register', {
         email,
@@ -47,6 +66,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string) {
     loading.value = true;
     error.value = null;
+    resetFeatureStores();
     try {
       const response = await apiClient.post<{ user: User; accessToken?: string }>('/auth/login', {
         email,
@@ -75,6 +95,7 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       user.value = null;
       localStorage.removeItem('access_token');
+      resetFeatureStores();
       loading.value = false;
     }
   }
@@ -91,6 +112,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (err) {
       user.value = null;
       localStorage.removeItem('access_token');
+      resetFeatureStores();
       return null;
     } finally {
       loading.value = false;

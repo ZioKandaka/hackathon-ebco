@@ -100,6 +100,21 @@ export interface DiscoveryDataPayload {
   createdAt: string;
 }
 
+export interface LocationDataPayload {
+  id: string;
+  name: string;
+  businessType: string;
+  fullAddress: string;
+  latitude: number;
+  longitude: number;
+  province?: string;
+  regency?: string;
+  subDistrict?: string;
+  postalCode?: string;
+  confidence?: number;
+  createdAt: string;
+}
+
 export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
@@ -109,6 +124,7 @@ export interface ChatStreamEvent {
   catchmentData?: CatchmentDataPayload;
   travelBoundaryData?: TravelBoundaryDataPayload;
   siteVisitData?: SiteVisitDataPayload;
+  locationData?: LocationDataPayload;
   error?: string;
   timestamp: string;
 }
@@ -208,6 +224,7 @@ export class ChatService {
             catchmentData: result.accumulatedPayloads.catchmentData,
             travelBoundaryData: result.accumulatedPayloads.travelBoundaryData,
             siteVisitData: result.accumulatedPayloads.siteVisitData,
+            locationData: result.accumulatedPayloads.locationData,
             timestamp: new Date().toISOString(),
           },
         });

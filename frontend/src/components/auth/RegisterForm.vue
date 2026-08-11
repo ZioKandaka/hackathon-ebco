@@ -1,7 +1,7 @@
 <template>
   <div class="auth-form-container">
     <h2>Create Account</h2>
-    <p class="subtitle">Join Location Intelligence Platform</p>
+    <p class="subtitle">Join Pinpoint</p>
 
     <div v-if="localError || authStore.error" class="error-banner">
       {{ localError || authStore.error }}

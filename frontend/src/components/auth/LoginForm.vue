@@ -1,7 +1,7 @@
 <template>
   <div class="auth-form-container">
     <h2>Sign In</h2>
-    <p class="subtitle">Access your Location Intelligence dashboard</p>
+    <p class="subtitle">Access your Pinpoint dashboard</p>
 
     <div v-if="authStore.error" class="error-banner">
       {{ authStore.error }}

@@ -62,9 +62,9 @@ log "Enabling required APIs (skips ones already on)"
 gcloud services enable \
   run.googleapis.com \
   sqladmin.googleapis.com \
+  sql-component.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
-  secretmanager.googleapis.com \
   bigquery.googleapis.com \
   aiplatform.googleapis.com \
   --project "$PROJECT_ID"
@@ -83,18 +83,6 @@ if [[ -z "${RUNTIME_SERVICE_ACCOUNT:-}" ]]; then
   RUNTIME_SERVICE_ACCOUNT="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 fi
 log "Runtime service account: ${RUNTIME_SERVICE_ACCOUNT}"
-
-ensure_secret() {
-  local name="$1" value="$2"
-  if gcloud secrets describe "$name" >/dev/null 2>&1; then
-    printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- >/dev/null
-  else
-    printf '%s' "$value" | gcloud secrets create "$name" --data-file=- --replication-policy=automatic >/dev/null
-  fi
-  gcloud secrets add-iam-policy-binding "$name" \
-    --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
-    --role="roles/secretmanager.secretAccessor" >/dev/null
-}
 
 if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
   log "Ensuring Cloud SQL instance '${SQL_INSTANCE_NAME}' exists (this can take several minutes on first create)"
@@ -117,11 +105,6 @@ if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
     gcloud sql users set-password "$DB_USERNAME" --instance="$SQL_INSTANCE_NAME" --password="$DB_PASSWORD"
   fi
 
-  log "Syncing secrets to Secret Manager"
-  ensure_secret db-password "$DB_PASSWORD"
-  ensure_secret jwt-secret "$JWT_SECRET"
-  ensure_secret google-maps-api-key "$GOOGLE_MAPS_API_KEY"
-
   log "Granting IAM roles to runtime service account"
   for role in roles/cloudsql.client roles/bigquery.jobUser roles/bigquery.dataViewer roles/aiplatform.user; do
     gcloud projects add-iam-policy-binding "$PROJECT_ID" \
@@ -140,8 +123,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
     --platform=managed \
     --service-account="$RUNTIME_SERVICE_ACCOUNT" \
     --add-cloudsql-instances="$INSTANCE_CONNECTION_NAME" \
-    --set-env-vars="NODE_ENV=production,DB_HOST=/cloudsql/${INSTANCE_CONNECTION_NAME},DB_PORT=5432,DB_NAME=${DB_NAME},DB_USERNAME=${DB_USERNAME},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},JWT_EXPIRES_IN=${JWT_EXPIRES_IN}" \
-    --set-secrets="DB_PASSWORD=db-password:latest,JWT_SECRET=jwt-secret:latest,GOOGLE_MAPS_API_KEY=google-maps-api-key:latest" \
+    --set-env-vars="^##^NODE_ENV=production##DB_HOST=/cloudsql/${INSTANCE_CONNECTION_NAME}##DB_PORT=5432##DB_NAME=${DB_NAME}##DB_USERNAME=${DB_USERNAME}##DB_PASSWORD=${DB_PASSWORD}##JWT_SECRET=${JWT_SECRET}##JWT_EXPIRES_IN=${JWT_EXPIRES_IN}##GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}##GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
     --allow-unauthenticated
 
   BACKEND_URL="$(gcloud run services describe "$BACKEND_SERVICE" --region="$REGION" --format='value(status.url)')"

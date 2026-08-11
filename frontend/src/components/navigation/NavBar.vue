@@ -1,6 +1,15 @@
 <template>
   <nav class="navbar">
-    <div class="nav-brand">Location Intelligence</div>
+    <div class="nav-brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path
+          fill-rule="evenodd"
+          clip-rule="evenodd"
+          d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"
+        />
+      </svg>
+      <span>Pinpoint</span>
+    </div>
     <div class="nav-links">
       <template v-if="authStore.isAuthenticated">
         <router-link to="/discover" class="nav-link">Discover</router-link>
@@ -53,9 +62,19 @@ async function handleLogout() {
 }
 
 .nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 1.125rem;
   font-weight: 700;
   letter-spacing: -0.025em;
+}
+
+.brand-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  fill: #3182ce;
 }
 
 .nav-links {

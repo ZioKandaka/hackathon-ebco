@@ -59,6 +59,19 @@ export const useLocationsStore = defineStore('locations', () => {
     }
   }
 
+  // Called when a business is added via the AI chat skill — the SSE payload carries the full
+  // created location, so the list/pins can update live instead of waiting for a manual refresh
+  // or a remount of MyLocationsView (which was the bug: nothing ever called this before).
+  function addLocation(loc: UserLocationItem) {
+    const idx = locations.value.findIndex((l) => l.id === loc.id);
+    if (idx !== -1) {
+      locations.value[idx] = loc;
+    } else {
+      locations.value.unshift(loc);
+    }
+    renderLocationPins();
+  }
+
   async function updateLocation(id: string, patch: Partial<UserLocationItem>) {
     error.value = null;
     try {
@@ -101,6 +114,7 @@ export const useLocationsStore = defineStore('locations', () => {
     error,
     fetchLocations,
     renderLocationPins,
+    addLocation,
     updateLocation,
     deleteLocation,
     resetStore,

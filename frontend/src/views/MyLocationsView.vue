@@ -112,6 +112,10 @@ const dashboardLocationId = ref<string | null>(null);
 const editDraft = reactive({ name: '', businessType: '', fullAddress: '' });
 
 function selectLocation(loc: UserLocationItem) {
+  // Re-render all location pins first: the map's marker registry is shared across every
+  // feature, and navigating through Discover/Heatmap/Catchment/Site Visit in between visits
+  // can clear it via their own clearMarkers() calls, silently dropping these pins.
+  locationsStore.renderLocationPins();
   setCenter(Number(loc.latitude), Number(loc.longitude), 15);
 }
 

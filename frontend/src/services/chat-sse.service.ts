@@ -124,6 +124,21 @@ export interface SiteVisitDataPayload {
   createdAt: string;
 }
 
+export interface LocationDataPayload {
+  id: string;
+  name: string;
+  businessType: string;
+  fullAddress: string;
+  latitude: number;
+  longitude: number;
+  province?: string;
+  regency?: string;
+  subDistrict?: string;
+  postalCode?: string;
+  confidence?: number;
+  createdAt: string;
+}
+
 export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
@@ -133,6 +148,7 @@ export interface ChatStreamEvent {
   catchmentData?: CatchmentDataPayload;
   travelBoundaryData?: TravelBoundaryDataPayload;
   siteVisitData?: SiteVisitDataPayload;
+  locationData?: LocationDataPayload;
   error?: string;
   timestamp: string;
 }

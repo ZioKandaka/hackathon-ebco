@@ -224,7 +224,7 @@ describe('ChatService', () => {
         } else if (msg.includes('Add my coffee shop branch')) {
           subject.next({ data: { type: 'status', step: 'Calling add_business...' } });
           const add = await executors.add_business({ businessName: 'Sudirman Coffee', businessType: 'coffee_shop', address: 'Jl. Sudirman No. 10' });
-          return { textResponse: add.summary, accumulatedPayloads: {} };
+          return { textResponse: add.summary, accumulatedPayloads: { locationData: add.location } };
         }
 
         subject.next({ data: { type: 'status', step: 'Understanding your request...' } });
@@ -608,6 +608,9 @@ describe('ChatService', () => {
           expect(events.length).toBeGreaterThan(0);
           expect(events[0].type).toBe('status');
           expect(events[0].step).toContain('add_business');
+          const messageEvent = events.find((e) => e.type === 'message');
+          expect(messageEvent.locationData).toBeDefined();
+          expect(messageEvent.locationData.id).toBe('loc-123');
           done();
         },
       });

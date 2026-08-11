@@ -41,6 +41,7 @@ export interface OrchestrationResult {
     catchmentData?: any;
     travelBoundaryData?: any;
     siteVisitData?: any;
+    locationData?: any;
   };
 }
 
@@ -75,7 +76,7 @@ export class VertexAiOrchestratorService {
     const accumulatedPayloads: OrchestrationResult['accumulatedPayloads'] = {};
     const savedLocationNames = userLocations.map((l) => l.name).join(', ') || 'None';
 
-    const systemContext = `You are a Location Intelligence AI assistant.
+    const systemContext = `You are Pinpoint, a location intelligence AI assistant.
 User's saved account locations: [${savedLocationNames}].
 Use available tools when the user's message implies location analysis, candidate discovery, heatmap visualization, catchment/accessibility scoring, travel-time boundary visualization, AI site visit visual check, or adding a business branch.
 Note: there is no separate "accessibility" tool — travel-time analysis is just catchment_score with boundaryType "time" (its default). Use show_travel_boundary only when the user wants to see the shape without a score.
@@ -154,7 +155,11 @@ After a successful discover_locations, generate_heatmap, catchment_score, or ai_
               let toolResult: any = { status: 'success' };
               try {
                 if (toolName === 'add_business' && executors.add_business) {
-                  toolResult = await executors.add_business(args);
+                  const res = await executors.add_business(args);
+                  if (res.location) {
+                    accumulatedPayloads.locationData = res.location;
+                  }
+                  toolResult = res;
                 } else if (toolName === 'discover_locations' && executors.discover_locations) {
                   const res = await executors.discover_locations(args);
                   accumulatedPayloads.discoveryData = res;
@@ -294,6 +299,9 @@ After a successful discover_locations, generate_heatmap, catchment_score, or ai_
         summaries.push(res.summary || 'Completed AI site visit inspection.');
       } else if (tool === 'add_business' && executors.add_business) {
         const res = await executors.add_business({ businessName: 'New Branch', businessType: 'coffee_shop', address: 'Jl. Sudirman No. 10' });
+        if (res.location) {
+          accumulatedPayloads.locationData = res.location;
+        }
         summaries.push(res.summary || 'Added business location branch.');
       }
     }
