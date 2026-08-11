@@ -6,7 +6,14 @@ import { Subject } from 'rxjs';
 export interface ToolCallExecutionMap {
   add_business?: (args: { businessName: string; businessType: string; address: string }) => Promise<any>;
   discover_locations?: (args: { businessType: string; region: string; count?: number }) => Promise<any>;
-  generate_heatmap?: (args: { region: string; businessType?: string; customCategory?: string; maxRating?: number }) => Promise<any>;
+  generate_heatmap?: (args: {
+    category?: string;
+    locationNameOrId?: string;
+    latitude?: number;
+    longitude?: number;
+    radiusKm?: number;
+    filters?: Array<{ column: string; operator: string; value: string }>;
+  }) => Promise<any>;
   catchment_score?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean }) => Promise<any>;
   accessibility_analysis?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number }) => Promise<any>;
   ai_site_visit?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string }) => Promise<any>;
@@ -61,7 +68,8 @@ User's saved account locations: [${savedLocationNames}].
 Use available tools when the user's message implies location analysis, candidate discovery, heatmap visualization, catchment scoring, accessibility travel time analysis, AI site visit visual check, or adding a business branch.
 When the user refers to a previously discovered candidate spot (e.g. 'spot 2' or candidate name), use its latitude/longitude from the earlier conversation turn directly as the latitude/longitude arguments for catchment_score, accessibility_analysis, or ai_site_visit — do not assume it is a saved business location.
 If required arguments for a tool are missing, ask the user a clarifying question in plain text.
-If no tool is needed, respond directly in plain text.`;
+If no tool is needed, respond directly in plain text.
+Always call the appropriate tool for the user's CURRENT message, even if an identical or very similar request appears earlier in the conversation history — a repeated request means the user wants the results shown again (e.g. after a page refresh), not a reminder that it was already answered. Never skip a tool call, or reply with only a reference to a previous answer, just because a similar request was already made earlier in this conversation.`;
 
     // Try Vertex AI function calling loop
     if (this.model) {
@@ -242,7 +250,7 @@ If no tool is needed, respond directly in plain text.`;
         accumulatedPayloads.candidates = res.candidates || res;
         summaries.push(`Found ${accumulatedPayloads.candidates?.length || 0} discovery candidates.`);
       } else if (tool === 'generate_heatmap' && executors.generate_heatmap) {
-        const res = await executors.generate_heatmap({ region: 'Kediri', businessType: 'coffee_shop' });
+        const res = await executors.generate_heatmap({ category: 'coffee_shop', locationNameOrId: 'Kediri' });
         accumulatedPayloads.heatmapData = res;
         summaries.push(res.summary || 'Generated spatial density heatmap.');
       } else if (tool === 'catchment_score' && executors.catchment_score) {

@@ -84,6 +84,70 @@ describe('DiscoveryService', () => {
     });
   });
 
+  describe('generateHeatmapDataset', () => {
+    it('should query within the radius using classified categories and validated filters, with uniform density weight', async () => {
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([
+        { id: 'p1', name: 'SDN 1', category: 'school', latitude: -6.2088, longitude: 106.8456, rating: 4.5 },
+        { id: 'p2', name: 'SDN 2', category: 'school', latitude: -6.2090, longitude: 106.8460, rating: 3.5 },
+      ]);
+
+      const result = await service.generateHeatmapDataset({
+        category: 'school',
+        center: { lat: -6.2088, lng: 106.8456 },
+        radiusKm: 5,
+        locationName: 'Sudirman Branch',
+        filters: [{ column: 'rating', operator: 'lt', value: '4.0' }],
+      });
+
+      expect(mockPoiRelevanceClassifierService.classifyRelevantCategories).toHaveBeenCalledWith('school');
+      expect(mockBigQueryService.queryPoisWithinRadius).toHaveBeenCalledWith(
+        -6.2088,
+        106.8456,
+        5000,
+        undefined,
+        ['coffee_shop', 'cafe', 'bakery'],
+        [{ column: 'rating', operator: 'lt', value: 4.0 }],
+      );
+      expect(result.points).toEqual([
+        { lat: -6.2088, lng: 106.8456, weight: 1, id: 'p1', name: 'SDN 1', category: 'school', rating: 4.5, userRatingsTotal: undefined, businessStatus: undefined },
+        { lat: -6.2090, lng: 106.8460, weight: 1, id: 'p2', name: 'SDN 2', category: 'school', rating: 3.5, userRatingsTotal: undefined, businessStatus: undefined },
+      ]);
+      expect(result.summary).toContain('rating below 4');
+      expect(result.summary).toContain('5km');
+    });
+
+    it('should not query BigQuery and should explain when the category has no relevant POI type', async () => {
+      mockPoiRelevanceClassifierService.classifyRelevantCategories.mockResolvedValueOnce([]);
+      mockBigQueryService.queryPoisWithinRadius = jest.fn();
+
+      const result = await service.generateHeatmapDataset({
+        category: 'laundry',
+        center: { lat: -6.2088, lng: 106.8456 },
+        radiusKm: 5,
+        locationName: 'Sudirman Branch',
+      });
+
+      expect(result.points).toEqual([]);
+      expect(result.summary).toContain('laundry');
+      expect(mockBigQueryService.queryPoisWithinRadius).not.toHaveBeenCalled();
+    });
+
+    it('should note in the summary when a requested filter is dropped as unsupported', async () => {
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([]);
+
+      const result = await service.generateHeatmapDataset({
+        category: 'school',
+        center: { lat: -6.2088, lng: 106.8456 },
+        radiusKm: 5,
+        locationName: 'Sudirman Branch',
+        filters: [{ column: 'annual_profit', operator: 'gt', value: '1000000000' }],
+      });
+
+      expect(result.summary).toContain("couldn't apply a filter");
+      expect(result.summary).toContain('annual_profit');
+    });
+  });
+
   describe('calculateCatchmentScore', () => {
     it('should calculate 6 sub-scores and a composite score for a radius query', async () => {
       mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([

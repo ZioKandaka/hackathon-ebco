@@ -24,11 +24,18 @@ export interface HeatmapPoint {
   lat: number;
   lng: number;
   weight: number;
+  id?: string;
+  name?: string;
+  category?: string;
+  rating?: number;
+  userRatingsTotal?: number;
+  businessStatus?: string;
 }
 
 export interface RenderHeatmapOptions {
   radius?: number;
   opacity?: number;
+  maxIntensity?: number;
   fitBounds?: boolean;
 }
 
@@ -61,6 +68,8 @@ class GoogleMapService {
   private poiInfoWindow: google.maps.InfoWindow | null = null;
   private activeHeatmapLayer: google.maps.visualization.HeatmapLayer | null = null;
   private fallbackHeatmapCircles: google.maps.Circle[] = [];
+  private heatmapHoverMarkers: google.maps.Marker[] = [];
+  private heatmapInfoWindow: google.maps.InfoWindow | null = null;
   private activeCatchmentCircle: google.maps.Circle | null = null;
   private activeIsochronePolygon: google.maps.Polygon | null = null;
   private heatmapConstructor: any = null;
@@ -257,6 +266,26 @@ class GoogleMapService {
       this.fallbackHeatmapCircles.forEach((c) => c.setMap(null));
       this.fallbackHeatmapCircles = [];
     }
+    if (this.heatmapInfoWindow) {
+      this.heatmapInfoWindow.close();
+      this.heatmapInfoWindow = null;
+    }
+    if (this.heatmapHoverMarkers.length > 0) {
+      this.heatmapHoverMarkers.forEach((m) => m.setMap(null));
+      this.heatmapHoverMarkers = [];
+    }
+  }
+
+  // A fixed blur radius can't work across result sizes: 8px is too sparse-looking for a
+  // 5-point result, but a radius sized for that still merges into a solid mass once a dense
+  // urban query returns 100+ overlapping POIs (e.g. coffee shops within 5km of central Jakarta).
+  // Shrink the radius as point count grows so both ends of that range stay legible.
+  private computeAdaptiveHeatmapRadius(pointCount: number): number {
+    if (pointCount <= 10) return 16;
+    if (pointCount <= 30) return 12;
+    if (pointCount <= 80) return 8;
+    if (pointCount <= 200) return 5;
+    return 3;
   }
 
   async renderHeatmap(points: HeatmapPoint[], options?: RenderHeatmapOptions): Promise<any> {
@@ -284,19 +313,32 @@ class GoogleMapService {
           };
         });
 
-        const heatmap = new HeatmapClass({
+        const heatmapConfig: any = {
           data: weightedData,
           map: this.map,
-          radius: options?.radius ?? 35,
-          opacity: options?.opacity ?? 0.75,
-        });
+          radius: options?.radius ?? this.computeAdaptiveHeatmapRadius(points.length),
+          opacity: options?.opacity ?? 0.6,
+        };
+
+        // Leave maxIntensity unset unless the caller explicitly provides one: an explicit low
+        // cap (e.g. 8) turns out to saturate to solid red wherever more than ~8 same-category
+        // POIs happen to overlap — which is routine in dense urban areas — so most of the map
+        // reads as one uniform red blob. Leaving it unset lets the library auto-scale the
+        // gradient to this dataset's actual max density, which is what produces real contrast.
+        if (options?.maxIntensity !== undefined) {
+          heatmapConfig.maxIntensity = options.maxIntensity;
+        }
+
+        const heatmap = new HeatmapClass(heatmapConfig);
 
         this.activeHeatmapLayer = heatmap;
+        console.log(`[heatmap] rendered ${points.length} points via HeatmapLayer, radius=${heatmapConfig.radius}px, opacity=${heatmapConfig.opacity}`);
       } catch (e) {
         console.warn('HeatmapLayer instantiation error, rendering fallback density overlay:', e);
         this.renderFallbackHeatmapCircles(points, options);
       }
     } else {
+      console.warn('[heatmap] visualization library unavailable — rendering fallback Circle overlay (sized in meters, not tunable via radius/opacity).');
       this.renderFallbackHeatmapCircles(points, options);
     }
 
@@ -305,18 +347,102 @@ class GoogleMapService {
       const bounds = new (window as any).google.maps.LatLngBounds();
       points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
       this.map.fitBounds(bounds);
+
+      // fitBounds can over-zoom into a tight, dense cluster to the point the blur radius
+      // dwarfs the screen — cap it so the gradient stays readable.
+      const mapRef = this.map;
+      google.maps.event.addListenerOnce(mapRef, 'bounds_changed', () => {
+        if ((mapRef.getZoom() || 0) > 15) {
+          mapRef.setZoom(15);
+        }
+      });
     }
+
+    // The HeatmapLayer gradient itself can't respond to hover — layer small invisible
+    // hit-targets per point on top so hovering shows what's actually there.
+    this.renderHeatmapHoverMarkers(points);
 
     return this.activeHeatmapLayer;
   }
 
-  private renderFallbackHeatmapCircles(points: HeatmapPoint[], _options?: RenderHeatmapOptions): void {
+  private renderHeatmapHoverMarkers(points: HeatmapPoint[]): void {
     if (!this.map || !window.google?.maps) return;
 
-    const maxWeight = Math.max(...points.map((p) => p.weight || 1), 1);
+    this.heatmapInfoWindow = new google.maps.InfoWindow();
+
+    const invisibleIcon: google.maps.Symbol = {
+      path: google.maps.SymbolPath.CIRCLE,
+      fillOpacity: 0,
+      strokeOpacity: 0,
+      scale: 10,
+    };
+
+    this.heatmapHoverMarkers = points.map((p) => {
+      const marker = new google.maps.Marker({
+        position: { lat: p.lat, lng: p.lng },
+        map: this.map,
+        icon: invisibleIcon,
+        zIndex: 400,
+        optimized: false,
+      });
+
+      const ratingText = p.rating ? `★ ${p.rating}${p.userRatingsTotal ? ` (${p.userRatingsTotal} reviews)` : ''}` : 'No rating';
+      const catText = (p.category || '').replace(/_/g, ' ').toUpperCase();
+      const statusText = p.businessStatus || 'OPERATIONAL';
+
+      const contentString = `
+        <div style="padding: 4px 6px; font-family: system-ui; color: #1a202c; max-width: 220px;">
+          <div style="font-weight: 700; font-size: 13px; margin-bottom: 2px;">${p.name || 'POI Location'}</div>
+          <div style="font-size: 11px; color: #E53E3E; font-weight: 600; margin-bottom: 2px;">${catText}</div>
+          <div style="font-size: 11px; color: #718096;">${ratingText} • <span style="color: ${statusText === 'OPERATIONAL' ? '#38A169' : '#E53E3E'}">${statusText}</span></div>
+        </div>
+      `;
+
+      marker.addListener('mouseover', () => {
+        if (this.heatmapInfoWindow && this.map) {
+          this.heatmapInfoWindow.setContent(contentString);
+          this.heatmapInfoWindow.open(this.map, marker);
+        }
+      });
+
+      marker.addListener('mouseout', () => {
+        if (this.heatmapInfoWindow) {
+          this.heatmapInfoWindow.close();
+        }
+      });
+
+      return marker;
+    });
+  }
+
+  // Same reasoning as computeAdaptiveHeatmapRadius, but in real-world meters since this path
+  // draws actual google.maps.Circle geometry rather than a pixel-space blur layer.
+  private computeAdaptiveFallbackRadiusMeters(pointCount: number): number {
+    if (pointCount <= 10) return 450;
+    if (pointCount <= 30) return 300;
+    if (pointCount <= 80) return 210;
+    if (pointCount <= 200) return 135;
+    return 90;
+  }
+
+  private renderFallbackHeatmapCircles(points: HeatmapPoint[], options?: RenderHeatmapOptions): void {
+    if (!this.map || !window.google?.maps) return;
+
+    const weights = points.map((p) => p.weight || 1);
+    const minWeight = Math.min(...weights);
+    const maxWeight = Math.max(...weights);
+    // Every point now carries weight: 1 (pure density signal, no fabricated per-point score —
+    // see DiscoveryService.generateHeatmapDataset), so minWeight === maxWeight in practice.
+    // The old normalized = weight / maxWeight formula degenerates to exactly 1 for every point
+    // in that case, which is why every circle rendered at max size/max color with zero variation.
+    const hasVariation = maxWeight > minWeight;
+    const radiusMeters = this.computeAdaptiveFallbackRadiusMeters(points.length);
+    const baseOpacity = options?.opacity ?? 0.45;
 
     this.fallbackHeatmapCircles = points.map((p) => {
-      const normalized = Math.min(1, Math.max(0.1, p.weight / maxWeight));
+      const normalized = hasVariation
+        ? Math.min(1, Math.max(0.1, (p.weight - minWeight) / (maxWeight - minWeight)))
+        : 0.6;
 
       let color = '#3182CE'; // low
       if (normalized > 0.75) {
@@ -329,13 +455,13 @@ class GoogleMapService {
 
       return new google.maps.Circle({
         strokeColor: color,
-        strokeOpacity: 0.15,
+        strokeOpacity: 0.25,
         strokeWeight: 1,
         fillColor: color,
-        fillOpacity: 0.3 + normalized * 0.4,
+        fillOpacity: baseOpacity,
         map: this.map,
         center: { lat: p.lat, lng: p.lng },
-        radius: 350 + normalized * 250,
+        radius: radiusMeters,
         clickable: false,
       });
     });

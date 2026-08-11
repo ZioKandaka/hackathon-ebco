@@ -29,16 +29,54 @@ export const toolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'generate_heatmap',
-    description: 'Generate or show a spatial POI density heatmap visualization for a business type, category, or region.',
+    description:
+      'Show a POI density heatmap for a category of place within a radius of a location. The category is independent ' +
+      'of the user\'s own saved business type — e.g. a food business can ask for a heatmap of schools. Only call this ' +
+      'tool with a category when one is given OR the location resolves to the user\'s own saved business (then omit ' +
+      'category to default to that business\'s type); if the location is a bare region/address with no category ' +
+      'mentioned, do NOT call this tool — ask the user in plain text which category they want instead. ' +
+      'Optional attribute filters may ONLY use these exact columns — if the user asks to filter on something else ' +
+      '(e.g. revenue, profit, employee count), do NOT call this tool with an invented filter; ask a clarifying ' +
+      'question or explain that attribute is not available: ' +
+      'rating (number, e.g. "below 4.0"), user_rating_count (number, review count), ' +
+      'business_status (one of OPERATIONAL, CLOSED_TEMPORARILY, CLOSED_PERMANENTLY).',
     parameters: {
       type: FunctionDeclarationSchemaType.OBJECT,
       properties: {
-        region: { type: FunctionDeclarationSchemaType.STRING, description: 'Target region, regency, or city name' },
-        businessType: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional business type (e.g. minimarket, coffee_shop)' },
-        customCategory: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional custom POI category filter (e.g. preschool, school, hospital)' },
-        maxRating: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional maximum rating threshold for filtering POIs (e.g. 4.0)' },
+        category: {
+          type: FunctionDeclarationSchemaType.STRING,
+          description:
+            'Free-text POI category to show density for (e.g. "school", "coffee shop", "pharmacy"). Optional only ' +
+            "when locationNameOrId resolves to the user's own saved business — defaults to that business's category.",
+        },
+        locationNameOrId: {
+          type: FunctionDeclarationSchemaType.STRING,
+          description:
+            'Name/ID of a saved business location or candidate spot to center the heatmap on, OR a freeform region/city/address (e.g. "Bandung", "Jl. Sudirman Jakarta").',
+        },
+        latitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit latitude coordinate to center on' },
+        longitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit longitude coordinate to center on' },
+        radiusKm: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Radius in kilometers from the center point (default 5.0; max 20.0)' },
+        filters: {
+          type: FunctionDeclarationSchemaType.ARRAY,
+          description: 'Optional attribute filters, restricted to the exact columns listed in this tool\'s description.',
+          items: {
+            type: FunctionDeclarationSchemaType.OBJECT,
+            properties: {
+              column: {
+                type: FunctionDeclarationSchemaType.STRING,
+                enum: ['rating', 'user_rating_count', 'business_status'],
+              },
+              operator: {
+                type: FunctionDeclarationSchemaType.STRING,
+                enum: ['lt', 'lte', 'gt', 'gte', 'eq', 'neq'],
+              },
+              value: { type: FunctionDeclarationSchemaType.STRING, description: 'Comparison value as a string, e.g. "4.0" or "OPERATIONAL"' },
+            },
+            required: ['column', 'operator', 'value'],
+          },
+        },
       },
-      required: ['region'],
     },
   },
   {

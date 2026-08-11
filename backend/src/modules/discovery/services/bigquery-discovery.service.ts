@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { BigQuery } from '@google-cloud/bigquery';
 import axios from 'axios';
 import { IsochroneCache } from '../entities/isochrone-cache.entity';
+import { ValidatedHeatmapFilter, buildHeatmapFilterSql } from './heatmap-filter.util';
 
 export interface RawPoiItem {
   id: string;
@@ -12,14 +13,6 @@ export interface RawPoiItem {
   latitude: number;
   longitude: number;
   regencyCode?: string;
-  rating?: number;
-  businessStatus?: string;
-}
-
-export interface RawHeatmapPoint {
-  latitude: number;
-  longitude: number;
-  category?: string;
   rating?: number;
   businessStatus?: string;
 }
@@ -122,60 +115,13 @@ export class BigQueryDiscoveryService {
     }
   }
 
-  async queryHeatmapRawPois(
-    region: string,
-    customCategory?: string,
-    maxRating?: number,
-  ): Promise<RawHeatmapPoint[]> {
-    if (!this.bigquery) {
-      throw new Error('BigQuery client is not configured. Cannot fetch POI data right now — please try again later.');
-    }
-
-    let whereClause = `WHERE (LOWER(regency_code) LIKE LOWER(@region) OR LOWER(province_code) LIKE LOWER(@region) OR LOWER(regency) LIKE LOWER(@region) OR LOWER(province) LIKE LOWER(@region))`;
-    const params: Record<string, any> = { region: `%${region}%` };
-
-    if (customCategory) {
-      whereClause += ` AND LOWER(poi_type) LIKE LOWER(@category)`;
-      params.category = `%${customCategory}%`;
-    }
-    if (maxRating !== undefined) {
-      whereClause += ` AND rating <= @maxRating`;
-      params.maxRating = maxRating;
-    }
-
-    const query = `
-      SELECT
-        latitude,
-        longitude,
-        poi_type as category,
-        rating,
-        business_status as businessStatus
-      FROM \`${this.datasetName}\`
-      ${whereClause}
-      LIMIT 5000
-    `;
-
-    try {
-      const [rows] = await this.bigquery.query({ query, params });
-      return (rows || []).map((r: any) => ({
-        latitude: Number(r.latitude),
-        longitude: Number(r.longitude),
-        category: r.category,
-        rating: r.rating ? Number(r.rating) : undefined,
-        businessStatus: r.businessStatus,
-      }));
-    } catch (err: any) {
-      this.logger.error(`BigQuery heatmap POI query error: ${err.message}`);
-      throw new Error(`Couldn't fetch heatmap data for that region — please try again.`);
-    }
-  }
-
   async queryPoisWithinRadius(
     lat: number,
     lng: number,
     radiusMeters: number,
     regencyOrProvince?: string,
     relevantCategories?: string[],
+    attributeFilters?: ValidatedHeatmapFilter[],
   ): Promise<RadiusPoiItem[]> {
     const cappedRadiusMeters = Math.min(10000, Math.max(100, radiusMeters));
 
@@ -199,6 +145,10 @@ export class BigQueryDiscoveryService {
       params.relevantCategories = relevantCategories;
     }
 
+    if (attributeFilters && attributeFilters.length > 0) {
+      whereClause += ` ${buildHeatmapFilterSql(attributeFilters, params)}`;
+    }
+
     const query = `
       SELECT
         poi_name as name,
@@ -212,7 +162,8 @@ export class BigQueryDiscoveryService {
         ST_DISTANCE(ST_GEOGPOINT(longitude, latitude), ST_GEOGPOINT(@lng, @lat)) as distanceMeters
       FROM \`${this.datasetName}\`
       ${whereClause}
-      LIMIT 5000
+      ORDER BY distanceMeters ASC
+      LIMIT 500
     `;
 
     try {

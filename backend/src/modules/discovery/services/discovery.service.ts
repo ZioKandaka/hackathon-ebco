@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { BigQueryDiscoveryService, RawPoiItem } from './bigquery-discovery.service';
 import { PoiRelevanceClassifierService } from './poi-relevance-classifier.service';
+import { RawHeatmapFilter, describeHeatmapFilter, validateHeatmapFilters } from './heatmap-filter.util';
 
 export interface DiscoveryCandidate {
   rank: number;
@@ -18,6 +19,12 @@ export interface WeightedHeatmapPoint {
   lat: number;
   lng: number;
   weight: number;
+  id?: string;
+  name?: string;
+  category?: string;
+  rating?: number;
+  userRatingsTotal?: number;
+  businessStatus?: string;
 }
 
 export interface CatchmentSubScores {
@@ -114,70 +121,60 @@ export class DiscoveryService {
   }
 
   async generateHeatmapDataset(options: {
-    mode: 'business_based' | 'custom_prompt';
-    businessType?: string;
-    region: string;
-    customCategory?: string;
-    maxRating?: number;
+    category: string;
+    center: { lat: number; lng: number };
+    radiusKm: number;
+    locationName: string;
+    filters?: RawHeatmapFilter[];
   }): Promise<{ points: WeightedHeatmapPoint[]; summary: string }> {
-    const rawPois = await this.bigqueryDiscoveryService.queryHeatmapRawPois(
-      options.region,
-      options.customCategory,
-      options.maxRating,
+    const relevantCategories = await this.poiRelevanceClassifierService.classifyRelevantCategories(
+      options.category,
     );
 
-    let points: WeightedHeatmapPoint[] = [];
-    let summary = '';
-
-    if (options.mode === 'business_based') {
-      const bType = options.businessType || 'business';
-      const demandCategories = this.bigqueryDiscoveryService.getDemandCategoriesForType(bType);
-
-      points = rawPois.map((p, idx) => {
-        let weight = 5.0;
-        const cat = (p.category || '').toLowerCase();
-
-        if (demandCategories.some((dc) => cat.includes(dc))) {
-          weight += 3.5;
-        }
-        if (cat.includes(bType.toLowerCase())) {
-          weight -= 2.0;
-        }
-
-        weight = Math.min(10.0, Math.max(1.0, weight + ((idx % 5) - 2) * 0.5));
-
-        return {
-          lat: p.latitude,
-          lng: p.longitude,
-          weight: Number(weight.toFixed(1)),
-        };
-      });
-
-      summary = `Darker red areas indicate high ${bType} demand density with low direct competition in ${options.region}.`;
-    } else {
-      const catLabel = options.customCategory || 'POI';
-      const ratingLabel = options.maxRating ? ` with rating below ${options.maxRating}` : '';
-
-      points = rawPois.map((p, idx) => {
-        let weight = 6.0;
-        if (p.rating && options.maxRating) {
-          weight = Math.min(10.0, Math.max(1.0, (5.0 - p.rating) * 2.0 + 3.0));
-        } else {
-          weight = Math.min(10.0, Math.max(2.0, 5.0 + (Math.sin(idx * 0.7) * 3.5)));
-        }
-        return {
-          lat: p.latitude,
-          lng: p.longitude,
-          weight: Number(weight.toFixed(1)),
-        };
-      });
-
-      summary = `Exploratory density heatmap showing ${catLabel} locations${ratingLabel} across ${options.region}.`;
+    if (relevantCategories.length === 0) {
+      return {
+        points: [],
+        summary: `"${options.category}" doesn't match any POI category in our dataset near ${options.locationName}. Try a different category (e.g. school, coffee shop, restaurant, pharmacy).`,
+      };
     }
 
-    if (points.length > 5000) {
-      points = points.slice(0, 5000);
-    }
+    const { valid: validFilters, dropped: droppedFilters } = validateHeatmapFilters(options.filters);
+    const radiusMeters = Math.round(options.radiusKm * 1000);
+
+    const rawPois = await this.bigqueryDiscoveryService.queryPoisWithinRadius(
+      options.center.lat,
+      options.center.lng,
+      radiusMeters,
+      undefined,
+      relevantCategories,
+      validFilters,
+    );
+
+    // Pure density signal: every matching POI counts equally, no fabricated opportunity score.
+    // Per-point POI metadata is carried through so the frontend can show a hover tooltip.
+    let points: WeightedHeatmapPoint[] = rawPois.map((p) => ({
+      lat: p.latitude,
+      lng: p.longitude,
+      weight: 1,
+      id: p.id,
+      name: p.name,
+      category: p.category,
+      rating: p.rating,
+      userRatingsTotal: p.userRatingsTotal,
+      businessStatus: p.businessStatus,
+    }));
+
+    const filterText =
+      validFilters.length > 0 ? ` with ${validFilters.map(describeHeatmapFilter).join(' and ')}` : '';
+    const droppedNote =
+      droppedFilters.length > 0
+        ? ` (Note: couldn't apply a filter on "${droppedFilters.map((f) => f.column).join(', ')}" — not available in our POI dataset.)`
+        : '';
+
+    const summary =
+      points.length > 0
+        ? `Showing ${points.length} "${options.category}"-related POI${filterText} within ${options.radiusKm}km of ${options.locationName}.${droppedNote}`
+        : `No "${options.category}"-related POI${filterText} found within ${options.radiusKm}km of ${options.locationName}. Try broadening the radius or category.${droppedNote}`;
 
     return { points, summary };
   }

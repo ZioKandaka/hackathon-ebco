@@ -39,14 +39,6 @@ describe('BigQueryDiscoveryService', () => {
     });
   });
 
-  describe('queryHeatmapRawPois', () => {
-    it('should throw a clear error instead of returning fabricated mock POIs when BigQuery fails', async () => {
-      await expect(service.queryHeatmapRawPois('Kediri')).rejects.toThrow(
-        /Couldn't fetch heatmap data/,
-      );
-    });
-  });
-
   describe('queryPoisWithinRadius', () => {
     it('should throw a clear error instead of returning fabricated mock POIs when BigQuery fails', async () => {
       await expect(service.queryPoisWithinRadius(-6.2088, 106.8456, 2000)).rejects.toThrow(

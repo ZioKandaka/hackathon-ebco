@@ -14,13 +14,20 @@ export interface HeatmapPoint {
   lat: number;
   lng: number;
   weight: number;
+  id?: string;
+  name?: string;
+  category?: string;
+  rating?: number;
+  userRatingsTotal?: number;
+  businessStatus?: string;
 }
 
 export interface HeatmapDataPayload {
   queryId: string;
-  mode: 'business_based' | 'custom_prompt';
-  businessType?: string;
-  region: string;
+  category: string;
+  locationName: string;
+  radiusKm: number;
+  center: { lat: number; lng: number };
   pointCount: number;
   points: HeatmapPoint[];
   summary: string;
@@ -163,7 +170,7 @@ export class ChatService {
           {
             add_business: (args) => this.executeAddBranchSkill(userId, args, subject),
             discover_locations: (args) => this.executeDiscoverySkill(userId, args, subject),
-            generate_heatmap: (args) => this.executeHeatmapSkill(userId, args, subject),
+            generate_heatmap: (args) => this.executeHeatmapSkill(userId, args, userLocations, subject),
             catchment_score: (args) => this.executeCatchmentSkill(userId, args, userLocations, subject),
             accessibility_analysis: (args) => this.executeAccessibilitySkill(userId, args, userLocations, subject),
             ai_site_visit: (args) => this.executeSiteVisitSkill(userId, args, userLocations, subject),
@@ -346,25 +353,57 @@ export class ChatService {
 
   async executeHeatmapSkill(
     userId: string,
-    args: { region: string; businessType?: string; customCategory?: string; maxRating?: number },
+    args: {
+      category?: string;
+      locationNameOrId?: string;
+      latitude?: number;
+      longitude?: number;
+      radiusKm?: number;
+      filters?: Array<{ column: string; operator: string; value: string }>;
+    },
+    userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
   ): Promise<any> {
-    const mode = args.customCategory || args.maxRating ? 'custom_prompt' : 'business_based';
+    const matchedLocation = await this.resolveLocationContext(args, userLocations);
+
+    if (!matchedLocation) {
+      const availableNames = userLocations.map((l) => l.name).join(', ');
+      const summary = userLocations.length === 0
+        ? "Which location or region would you like to see a heatmap for? You can specify a saved location name, a region/city, or a street address."
+        : `I couldn't locate "${args.locationNameOrId || 'that location'}". Your saved locations are: ${availableNames}. Please specify a saved location, region/city, or full street address!`;
+      return { summary };
+    }
+
+    // Only default the category from a real saved business match — never from an ad-hoc
+    // geocoded region/address or a candidate-spot pin, both of which carry the generic
+    // 'business' placeholder rather than an actual saved business type.
+    const isSavedBusiness = Boolean(matchedLocation.id && matchedLocation.businessType && matchedLocation.businessType !== 'business');
+    const category = args.category || (isSavedBusiness ? matchedLocation.businessType : undefined);
+
+    if (!category) {
+      return {
+        summary: `What category of POI would you like to see a heatmap for near ${matchedLocation.name}? (e.g. school, coffee shop, restaurant, pharmacy)`,
+      };
+    }
+
+    const radiusKm = Math.min(20, Math.max(0.5, args.radiusKm || 5));
+    const center = { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) };
 
     const result = await this.discoveryService.generateHeatmapDataset({
-      mode,
-      businessType: args.businessType,
-      region: args.region,
-      customCategory: args.customCategory,
-      maxRating: args.maxRating,
+      category,
+      center,
+      radiusKm,
+      locationName: matchedLocation.name,
+      filters: args.filters,
     });
 
     const queryId = `hm-${Date.now().toString(36)}`;
     const heatmapData: HeatmapDataPayload = {
       queryId,
-      mode,
-      businessType: args.businessType,
-      region: args.region,
+      category,
+      locationName: matchedLocation.name,
+      radiusKm,
+      center,
       pointCount: result.points.length,
       points: result.points,
       summary: result.summary,

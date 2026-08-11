@@ -164,15 +164,20 @@ export class OrchestratorService {
       const candidates = await this.discoveryService.searchCandidates('coffee_shop', 'Kediri', 5);
       context.candidates = candidates;
     } else if (tool === 'heatmap') {
+      const center = { lat: -7.8167, lng: 112.0117 };
+      const radiusKm = 5;
       const result = await this.discoveryService.generateHeatmapDataset({
-        mode: 'business_based',
-        businessType: 'coffee_shop',
-        region: 'Kediri',
+        category: 'coffee_shop',
+        center,
+        radiusKm,
+        locationName: 'Kediri',
       });
       context.heatmapData = {
         queryId: `hm-${Date.now().toString(36)}`,
-        mode: 'business_based',
-        region: 'Kediri',
+        category: 'coffee_shop',
+        locationName: 'Kediri',
+        radiusKm,
+        center,
         pointCount: result.points.length,
         points: result.points,
         summary: result.summary,

@@ -137,7 +137,7 @@ describe('ChatService', () => {
           subject.next({ data: { type: 'status', step: 'Calling discover_locations...' } });
           const disc = await executors.discover_locations({ businessType: 'coffee_shop', region: 'Kediri' });
           subject.next({ data: { type: 'status', step: 'Calling generate_heatmap...' } });
-          const hm = await executors.generate_heatmap({ region: 'Kediri', businessType: 'coffee_shop' });
+          const hm = await executors.generate_heatmap({ category: 'coffee_shop', locationNameOrId: 'Kediri' });
           return {
             textResponse: 'Synthesized multi-tool analysis report for Kediri.',
             accumulatedPayloads: { candidates: disc.candidates, heatmapData: hm },
@@ -147,8 +147,9 @@ describe('ChatService', () => {
           const isCustom = msg.includes('preschools');
           const isJaksel = msg.includes('jakarta');
           const hm = await executors.generate_heatmap({
-            region: isJaksel ? 'jakarta selatan' : isCustom ? 'bandung' : 'Kediri',
-            customCategory: isCustom ? 'preschool' : undefined,
+            locationNameOrId: isJaksel ? 'jakarta selatan' : isCustom ? 'bandung' : 'Kediri',
+            category: isCustom ? 'preschool' : 'high school',
+            filters: isCustom ? [{ column: 'rating', operator: 'lt', value: '4.0' }] : undefined,
           });
           return { textResponse: hm.summary, accumulatedPayloads: { heatmapData: hm } };
         } else if (msg.includes('catchment') || msg.includes('Catchment')) {
@@ -226,6 +227,69 @@ describe('ChatService', () => {
         order: { createdAt: 'ASC' },
         take: 100,
       });
+    });
+  });
+
+  describe('executeHeatmapSkill', () => {
+    it('should default the category to the saved business type when the user omits it', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeHeatmapSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.generateHeatmapDataset).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'coffee_shop', locationName: 'Sudirman Branch', radiusKm: 5 }),
+      );
+      expect(result.category).toBe('coffee_shop');
+    });
+
+    it('should let an explicit category override the saved business type', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeHeatmapSkill(
+        'user-uuid-123',
+        { category: 'school', locationNameOrId: 'Sudirman Branch' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.generateHeatmapDataset).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'school' }),
+      );
+      expect(result.category).toBe('school');
+    });
+
+    it('should ask a clarifying question instead of guessing when a bare region has no category', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeHeatmapSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Bandung' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(result.summary).toContain('What category');
+      expect(mockDiscoveryService.generateHeatmapDataset).not.toHaveBeenCalled();
+    });
+
+    it('should apply a custom radiusKm when the user specifies one', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      await service.executeHeatmapSkill(
+        'user-uuid-123',
+        { category: 'school', locationNameOrId: 'Sudirman Branch', radiusKm: 3 },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.generateHeatmapDataset).toHaveBeenCalledWith(
+        expect.objectContaining({ radiusKm: 3 }),
+      );
     });
   });
 
@@ -326,7 +390,7 @@ describe('ChatService', () => {
           expect(events[0].type).toBe('status');
           const messageEvent = events.find((e) => e.type === 'message' && e.heatmapData);
           expect(messageEvent).toBeDefined();
-          expect(messageEvent.heatmapData.mode).toBe('custom_prompt');
+          expect(messageEvent.heatmapData.category).toBe('preschool');
           done();
         },
       });
@@ -349,7 +413,7 @@ describe('ChatService', () => {
           expect(events[0].step).toContain('generate_heatmap');
           const messageEvent = events.find((e) => e.type === 'message' && e.heatmapData);
           expect(messageEvent).toBeDefined();
-          expect(messageEvent.heatmapData.region).toBe('jakarta selatan');
+          expect(messageEvent.heatmapData.category).toBe('high school');
           expect(messageEvent.heatmapData.points.length).toBeGreaterThan(0);
           done();
         },

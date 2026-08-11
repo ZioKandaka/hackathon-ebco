@@ -2,13 +2,20 @@ export interface HeatmapPoint {
   lat: number;
   lng: number;
   weight: number;
+  id?: string;
+  name?: string;
+  category?: string;
+  rating?: number;
+  userRatingsTotal?: number;
+  businessStatus?: string;
 }
 
 export interface HeatmapDataPayload {
   queryId: string;
-  mode: 'business_based' | 'custom_prompt';
-  businessType?: string;
-  region: string;
+  category: string;
+  locationName: string;
+  radiusKm: number;
+  center: { lat: number; lng: number };
   pointCount: number;
   points: HeatmapPoint[];
   summary: string;
