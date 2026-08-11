@@ -6,7 +6,8 @@ import { ChatMessage, MessageSender } from './entities/chat-message.entity';
 import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
-import { SiteVisitService } from '../discovery/services/site-visit.service';
+import { SiteVisitService, VisualCriteriaMap, SiteVisitImageType } from '../discovery/services/site-visit.service';
+import { SiteVisitHistoryService } from '../discovery/services/site-visit-history.service';
 import { CatchmentHistoryService } from '../discovery/services/catchment-history.service';
 import { CatchmentSubScoreKey, ContributingPoiFact } from '../discovery/services/catchment-explanation.service';
 import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
@@ -74,21 +75,15 @@ export interface TravelBoundaryDataPayload {
 }
 
 export interface SiteVisitDataPayload {
-  visitId: string;
+  reportId: string;
   locationName: string;
   hasStreetViewCoverage: boolean;
   overallVisualScore: number;
-  images: {
-    hasStreetViewCoverage: boolean;
-    streetViewNorthUrl?: string;
-    streetViewEastUrl?: string;
-    streetViewSouthUrl?: string;
-    streetViewWestUrl?: string;
-    satelliteUrl: string;
-  };
-  criteria: Record<string, { score: number; justification: string }>;
+  criteria: VisualCriteriaMap;
+  availableImageTypes: SiteVisitImageType[];
   center: { lat: number; lng: number };
   summary: string;
+  createdAt: string;
 }
 
 export interface ChatStreamEvent {
@@ -130,6 +125,7 @@ export class ChatService {
     private readonly locationsService: LocationsService,
     private readonly discoveryService: DiscoveryService,
     private readonly siteVisitService: SiteVisitService,
+    private readonly siteVisitHistoryService: SiteVisitHistoryService,
     private readonly catchmentHistoryService: CatchmentHistoryService,
     private readonly vertexAiOrchestratorService: VertexAiOrchestratorService,
   ) {}
@@ -239,16 +235,29 @@ export class ChatService {
       matchedLocation.name,
     );
 
-    const visitId = `sv-${Date.now().toString(36)}`;
+    const center = { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) };
+
+    // Unlike catchment history, persistence here isn't just for refresh-durability — the images
+    // are served by report ID through the proxy endpoint, so a failed save would leave a run with
+    // no way to load its imagery. Let a save failure propagate as a real error instead of
+    // returning a payload that can't actually render.
+    const saved = await this.siteVisitHistoryService.saveRun(userId, {
+      locationName: matchedLocation.name,
+      latitude: center.lat,
+      longitude: center.lng,
+      ...result,
+    });
+
     const siteVisitData: SiteVisitDataPayload = {
-      visitId,
+      reportId: saved.id,
       locationName: matchedLocation.name,
       hasStreetViewCoverage: result.hasStreetViewCoverage,
       overallVisualScore: result.overallVisualScore,
-      images: result.images,
-      criteria: result.criteria as any,
-      center: { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) },
-      summary: result.summary,
+      criteria: result.criteria,
+      availableImageTypes: result.availableImageTypes,
+      center,
+      summary: `AI site visit for ${matchedLocation.name} is ready — see the Site Visit panel on the left.`,
+      createdAt: saved.createdAt.toISOString(),
     };
 
     return siteVisitData;

@@ -4,6 +4,7 @@ import { apiClient } from '../services/api.service';
 import { ChatSseService, ChatStreamEvent } from '../services/chat-sse.service';
 import { useDiscoveryStore } from './discovery.store';
 import { useCatchmentStore } from './catchment.store';
+import { useSiteVisitStore } from './siteVisit.store';
 import { googleMapService } from '../services/google-map.service';
 
 export interface ChatMessageItem {
@@ -11,7 +12,6 @@ export interface ChatMessageItem {
   sender: 'user' | 'assistant';
   content: string;
   createdAt?: string;
-  siteVisitData?: any;
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -60,10 +60,10 @@ export const useChatStore = defineStore('chat', () => {
           };
 
           if (event.siteVisitData) {
-            newMsg.siteVisitData = event.siteVisitData;
-            if (event.siteVisitData.center) {
-              googleMapService.setCenterAndZoom(event.siteVisitData.center, 17);
-            }
+            // No images/gallery render inline in chat — the full report (images + scores) lives
+            // in the Site Visit panel, which addRun() selects and centers the map on.
+            const siteVisitStore = useSiteVisitStore();
+            siteVisitStore.addRun(event.siteVisitData);
           }
 
           messages.value.push(newMsg);

@@ -73,22 +73,31 @@ export interface TravelBoundaryDataPayload {
   summary: string;
 }
 
+export type SiteVisitImageType = 'north' | 'east' | 'south' | 'west' | 'satellite';
+
+export interface VisualCriterionScore {
+  score: number;
+  justification: string;
+}
+
+export interface SiteVisitCriteria {
+  storefrontVisibility: VisualCriterionScore;
+  roadWidthAccess: VisualCriterionScore;
+  trafficVisibility: VisualCriterionScore;
+  buildingTypes: VisualCriterionScore;
+  areaCondition: VisualCriterionScore;
+}
+
 export interface SiteVisitDataPayload {
-  visitId: string;
+  reportId: string;
   locationName: string;
   hasStreetViewCoverage: boolean;
   overallVisualScore: number;
-  images: {
-    hasStreetViewCoverage: boolean;
-    streetViewNorthUrl?: string;
-    streetViewEastUrl?: string;
-    streetViewSouthUrl?: string;
-    streetViewWestUrl?: string;
-    satelliteUrl: string;
-  };
-  criteria: Record<string, { score: number; justification: string }>;
+  criteria: SiteVisitCriteria;
+  availableImageTypes: SiteVisitImageType[];
   center: { lat: number; lng: number };
   summary: string;
+  createdAt: string;
 }
 
 export interface ChatStreamEvent {

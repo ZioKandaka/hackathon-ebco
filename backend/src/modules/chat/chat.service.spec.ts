@@ -6,6 +6,7 @@ import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
+import { SiteVisitHistoryService } from '../discovery/services/site-visit-history.service';
 import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
 import { CatchmentHistoryService } from '../discovery/services/catchment-history.service';
 
@@ -16,6 +17,7 @@ describe('ChatService', () => {
   let mockLocationsService: any;
   let mockDiscoveryService: any;
   let mockSiteVisitService: any;
+  let mockSiteVisitHistoryService: any;
   let mockVertexAiOrchestratorService: any;
   let mockCatchmentHistoryService: any;
 
@@ -145,16 +147,21 @@ describe('ChatService', () => {
       analyzeSite: jest.fn().mockResolvedValue({
         hasStreetViewCoverage: true,
         overallVisualScore: 85,
-        images: {
-          hasStreetViewCoverage: true,
-          streetViewNorthUrl: 'https://example.com/north.jpg',
-          satelliteUrl: 'https://example.com/sat.jpg',
-        },
         criteria: {
           storefrontVisibility: { score: 90, justification: 'Clear signage' },
+          roadWidthAccess: { score: 80, justification: 'Wide road' },
+          trafficVisibility: { score: 78, justification: 'Steady traffic' },
+          buildingTypes: { score: 82, justification: 'Commercial buildings' },
+          areaCondition: { score: 88, justification: 'Well maintained' },
         },
+        availableImageTypes: ['north', 'east', 'south', 'west', 'satellite'],
         summary: 'AI Site Visit Report for Sudirman Branch: Visual Score 85/100.',
       }),
+    };
+
+    mockSiteVisitHistoryService = {
+      saveRun: jest.fn().mockResolvedValue({ id: 'report-uuid-1', createdAt: new Date('2026-08-11T00:00:00.000Z') }),
+      getUserRuns: jest.fn().mockResolvedValue([]),
     };
 
     mockCatchmentHistoryService = {
@@ -233,6 +240,10 @@ describe('ChatService', () => {
         {
           provide: SiteVisitService,
           useValue: mockSiteVisitService,
+        },
+        {
+          provide: SiteVisitHistoryService,
+          useValue: mockSiteVisitHistoryService,
         },
         {
           provide: CatchmentHistoryService,
@@ -764,7 +775,8 @@ describe('ChatService', () => {
           const messageEvent = events.find((e) => e.type === 'message' && e.siteVisitData);
           expect(messageEvent).toBeDefined();
           expect(messageEvent.siteVisitData.overallVisualScore).toBe(85);
-          expect(messageEvent.siteVisitData.images.satelliteUrl).toBeDefined();
+          expect(messageEvent.siteVisitData.reportId).toBe('report-uuid-1');
+          expect(messageEvent.siteVisitData.availableImageTypes).toEqual(['north', 'east', 'south', 'west', 'satellite']);
           done();
         },
       });

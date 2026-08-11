@@ -11,7 +11,6 @@
           <span class="sender-label">{{ msg.sender === 'user' ? 'You' : 'AI Assistant' }}</span>
         </div>
         <div class="message-content">{{ msg.content }}</div>
-        <SiteVisitGallery v-if="msg.siteVisitData" :site-visit-data="msg.siteVisitData" />
       </div>
     </div>
 
@@ -28,14 +27,12 @@
 <script setup lang="ts">
 import { ref, watch, nextTick } from 'vue';
 import ChatStatusCard from './ChatStatusCard.vue';
-import SiteVisitGallery from './SiteVisitGallery.vue';
 
 export interface DisplayMessage {
   id?: string;
   sender: 'user' | 'assistant';
   content: string;
   createdAt?: string;
-  siteVisitData?: any;
 }
 
 const props = defineProps<{

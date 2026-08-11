@@ -147,7 +147,7 @@ export const toolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'ai_site_visit',
-    description: 'Perform a qualitative visual inspection of a location using 4-heading Street View static imagery and satellite snapshot.',
+    description: 'Perform an AI-scored visual inspection of a location using real Street View and satellite imagery. Results (images, per-criterion scores, and analysis) are saved to history and shown in the Site Visit panel — do NOT describe or list individual images in the chat reply, just briefly confirm the analysis is ready and point the user to the panel.',
     parameters: {
       type: FunctionDeclarationSchemaType.OBJECT,
       properties: {
