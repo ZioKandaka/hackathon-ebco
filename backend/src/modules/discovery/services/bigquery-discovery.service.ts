@@ -21,13 +21,15 @@ export interface RadiusPoiItem {
   id: string;
   name: string;
   category: string;
+  // The standardized poi_type_strd value (fixed 24-category taxonomy) — use this, not
+  // `category` (the noisy free-text poi_type column), for any exact category matching.
+  standardizedCategory: string;
   latitude: number;
   longitude: number;
   distanceMeters: number;
   rating?: number;
   userRatingsTotal?: number;
   businessStatus?: string;
-  brandName?: string;
 }
 
 export interface LatLngPoint {
@@ -154,6 +156,7 @@ export class BigQueryDiscoveryService {
         poi_name as name,
         poi_id as id,
         poi_type as category,
+        poi_type_strd as standardizedCategory,
         latitude,
         longitude,
         rating,
@@ -172,6 +175,7 @@ export class BigQueryDiscoveryService {
         id: r.id || 'poi-id',
         name: r.name || 'POI Location',
         category: r.category || 'general',
+        standardizedCategory: r.standardizedCategory || 'other',
         latitude: Number(r.latitude),
         longitude: Number(r.longitude),
         distanceMeters: Number(Math.floor(r.distanceMeters) || 0),
@@ -320,6 +324,7 @@ export class BigQueryDiscoveryService {
           poi_id as id,
           poi_name as name,
           poi_type as category,
+          poi_type_strd as standardizedCategory,
           latitude,
           longitude,
           rating,
@@ -335,6 +340,7 @@ export class BigQueryDiscoveryService {
         id: r.id || 'poi-id',
         name: r.name || 'POI Location',
         category: r.category || 'general',
+        standardizedCategory: r.standardizedCategory || 'other',
         latitude: Number(r.latitude),
         longitude: Number(r.longitude),
         distanceMeters: 0,

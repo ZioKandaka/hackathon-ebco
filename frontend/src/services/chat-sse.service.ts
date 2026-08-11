@@ -30,16 +30,34 @@ export interface CatchmentSubScores {
   operationalVitality: number;
 }
 
+export type CatchmentSubScoreKey = keyof CatchmentSubScores;
+
+export interface ContributingPoi {
+  id: string;
+  name: string;
+  category: string;
+  latitude: number;
+  longitude: number;
+  distanceMeters: number;
+  rating?: number;
+  businessStatus?: string;
+}
+
 export interface CatchmentDataPayload {
   analysisId: string;
   locationId: string;
   locationName: string;
+  category: string;
   radiusKm: number;
   compositeScore: number;
   subScores: CatchmentSubScores;
+  weights: CatchmentSubScores;
   poiCount: number;
+  contributingPois: Record<CatchmentSubScoreKey, ContributingPoi[]>;
+  explanations: Record<CatchmentSubScoreKey, string> | null;
   center: { lat: number; lng: number };
   summary: string;
+  createdAt: string;
 }
 
 export interface AccessibilityDataPayload {

@@ -81,14 +81,33 @@ export const toolDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'catchment_score',
-    description: 'Calculate composite catchment score (0-100) and 6 sub-scores for a location (saved location name, explicit lat/lng coordinates, or street address).',
+    description:
+      'Calculate composite catchment score (0-100) and 6 sub-scores for a business category at a location — a ' +
+      "saved business location, a candidate spot, or ANY freeform street address (e.g. a prospective new site the " +
+      "user hasn't opened yet). The category is independent of any saved business's own type — e.g. the user can " +
+      'ask for a "book store" catchment score at their existing coffee shop\'s address. Only call this tool with a ' +
+      'category when one is given OR the location resolves to the user\'s own saved business (then omit category to ' +
+      'default to that business\'s type); if the location is a bare address/candidate spot with no category ' +
+      'mentioned, do NOT call this tool — ask the user in plain text which category they want instead. ' +
+      'IMPORTANT for follow-ups: if the user\'s message only changes the category (e.g. "what about a book store ' +
+      'instead?") after a prior catchment_score call in this conversation, reuse the exact same location/address ' +
+      'and radius from that prior call — do not ask the user to repeat the address. ' +
+      'After calling this tool, respond with ONLY a short one-sentence pointer to the panel (e.g. "Catchment ' +
+      'analysis for [category] at [location] is ready — see the panel on the left.") — do NOT restate the ' +
+      'individual scores, weights, or explanations in chat, since the panel already displays the full breakdown.',
     parameters: {
       type: FunctionDeclarationSchemaType.OBJECT,
       properties: {
+        category: {
+          type: FunctionDeclarationSchemaType.STRING,
+          description:
+            'Free-text business category to analyze catchment for (e.g. "coffee shop", "book store"). Optional ' +
+            "only when locationNameOrId resolves to the user's own saved business — defaults to that business's category.",
+        },
         locationNameOrId: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional name or ID of a saved location or candidate spot' },
         latitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit latitude coordinate of candidate or site' },
         longitude: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional explicit longitude coordinate of candidate or site' },
-        address: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional freeform street address to analyze on the fly' },
+        address: { type: FunctionDeclarationSchemaType.STRING, description: 'Optional freeform street address to analyze on the fly — works for ANY address, not just saved businesses' },
         radiusKm: { type: FunctionDeclarationSchemaType.NUMBER, description: 'Optional analysis radius in kilometers (default 2.0; max 10.0)' },
         ignoreCompetition: { type: FunctionDeclarationSchemaType.BOOLEAN, description: 'Optional flag to ignore competition density penalty in scoring' },
         ignoreSaturation: { type: FunctionDeclarationSchemaType.BOOLEAN, description: 'Optional flag to ignore network saturation penalty in scoring' },

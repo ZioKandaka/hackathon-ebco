@@ -568,9 +568,9 @@ class GoogleMapService {
 
     this.poiInfoWindow = new google.maps.InfoWindow();
 
-    const cyanIcon: google.maps.Symbol = {
+    const poiMarkerIcon: google.maps.Symbol = {
       path: google.maps.SymbolPath.CIRCLE,
-      fillColor: '#00B5D8',
+      fillColor: '#38A169',
       fillOpacity: 1.0,
       strokeColor: '#FFFFFF',
       strokeWeight: 2,
@@ -587,7 +587,7 @@ class GoogleMapService {
         position,
         map: this.map,
         title: poi.name,
-        icon: cyanIcon,
+        icon: poiMarkerIcon,
         zIndex: 500,
       });
 
@@ -599,7 +599,7 @@ class GoogleMapService {
       const contentString = `
         <div style="padding: 4px 6px; font-family: system-ui; color: #1a202c; max-width: 220px;">
           <div style="font-weight: 700; font-size: 13px; margin-bottom: 2px;">${poi.name}</div>
-          <div style="font-size: 11px; color: #319795; font-weight: 600; margin-bottom: 2px;">${catText}${distText}</div>
+          <div style="font-size: 11px; color: #38A169; font-weight: 600; margin-bottom: 2px;">${catText}${distText}</div>
           <div style="font-size: 11px; color: #718096;">${ratingText} • <span style="color: ${statusText === 'OPERATIONAL' ? '#38A169' : '#E53E3E'}">${statusText}</span></div>
         </div>
       `;

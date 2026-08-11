@@ -7,6 +7,8 @@ import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
+import { CatchmentHistoryService } from '../discovery/services/catchment-history.service';
+import { CatchmentSubScoreKey, ContributingPoiFact } from '../discovery/services/catchment-explanation.service';
 import { OrchestratorService } from './orchestrator.service';
 import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
 
@@ -46,12 +48,17 @@ export interface CatchmentDataPayload {
   analysisId: string;
   locationId: string;
   locationName: string;
+  category: string;
   radiusKm: number;
   compositeScore: number;
   subScores: CatchmentSubScores;
+  weights: CatchmentSubScores;
   poiCount: number;
+  contributingPois: Record<CatchmentSubScoreKey, ContributingPoiFact[]>;
+  explanations: Record<CatchmentSubScoreKey, string> | null;
   center: { lat: number; lng: number };
   summary: string;
+  createdAt: string;
 }
 
 export interface AccessibilityDataPayload {
@@ -112,6 +119,8 @@ export interface ResolvedLocation {
   latitude: number;
   longitude: number;
   businessType?: string;
+  province?: string;
+  regency?: string;
 }
 
 @Injectable()
@@ -123,6 +132,7 @@ export class ChatService {
     private readonly locationsService: LocationsService,
     private readonly discoveryService: DiscoveryService,
     private readonly siteVisitService: SiteVisitService,
+    private readonly catchmentHistoryService: CatchmentHistoryService,
     private readonly orchestratorService: OrchestratorService,
     private readonly vertexAiOrchestratorService: VertexAiOrchestratorService,
   ) {}
@@ -307,7 +317,7 @@ export class ChatService {
 
   async executeCatchmentSkill(
     userId: string,
-    args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean },
+    args: { category?: string; locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean },
     userLocations: any[],
     subject: Subject<{ data: ChatStreamEvent }>,
   ): Promise<any> {
@@ -321,7 +331,19 @@ export class ChatService {
       return { summary };
     }
 
-    const radiusKm = args.radiusKm || 2.0;
+    // Only default the category from a real saved business match — never from an ad-hoc
+    // geocoded address or a candidate-spot pin, both of which carry the generic 'business'
+    // placeholder rather than an actual saved business type (same rule as generate_heatmap).
+    const isSavedBusiness = Boolean(matchedLocation.id && matchedLocation.businessType && matchedLocation.businessType !== 'business');
+    const category = args.category || (isSavedBusiness ? matchedLocation.businessType : undefined);
+
+    if (!category) {
+      return {
+        summary: `What business category would you like to analyze catchment for at ${matchedLocation.name}? (e.g. coffee shop, book store, pharmacy)`,
+      };
+    }
+
+    const radiusKm = Math.min(10, Math.max(0.1, args.radiusKm || 2.0));
     const customWeights: any = {};
     if (args.ignoreCompetition) customWeights.competitionPenalty = 0;
     if (args.ignoreSaturation) customWeights.networkSaturation = 0;
@@ -330,23 +352,47 @@ export class ChatService {
       lat: Number(matchedLocation.latitude),
       lng: Number(matchedLocation.longitude),
       radiusKm,
-      businessType: matchedLocation.businessType,
+      category,
       locationName: matchedLocation.name,
+      regionFilter: matchedLocation.regency || matchedLocation.province,
       customWeights,
     });
 
     const analysisId = `cs-${Date.now().toString(36)}`;
+    const createdAt = new Date().toISOString();
+    const center = { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) };
+
     const catchmentData: CatchmentDataPayload = {
       analysisId,
       locationId: matchedLocation.id || 'adhoc-loc',
       locationName: matchedLocation.name,
+      category,
       radiusKm,
       compositeScore: result.compositeScore,
       subScores: result.subScores,
+      weights: result.weights,
       poiCount: result.poiCount,
-      center: { lat: Number(matchedLocation.latitude), lng: Number(matchedLocation.longitude) },
-      summary: result.summary,
+      contributingPois: result.contributingPois,
+      explanations: result.explanations,
+      center,
+      summary: `Catchment analysis for ${category} at ${matchedLocation.name} is ready — see the panel on the left.`,
+      createdAt,
     };
+
+    try {
+      await this.catchmentHistoryService.saveRun(userId, {
+        locationName: matchedLocation.name,
+        category,
+        latitude: center.lat,
+        longitude: center.lng,
+        radiusKm,
+        ...result,
+      });
+    } catch (err: any) {
+      // Persistence failure shouldn't take down an otherwise-successful analysis — the user
+      // still gets their result this turn, it just won't survive a refresh.
+      console.error('Failed to persist catchment analysis run:', err.message);
+    }
 
     return catchmentData;
   }
@@ -504,6 +550,8 @@ export class ChatService {
             latitude: Number(byId.latitude),
             longitude: Number(byId.longitude),
             businessType: byId.businessType,
+            province: byId.province,
+            regency: byId.regency,
           };
         }
 
@@ -521,6 +569,8 @@ export class ChatService {
             latitude: Number(byName.latitude),
             longitude: Number(byName.longitude),
             businessType: byName.businessType,
+            province: byName.province,
+            regency: byName.regency,
           };
         }
       }
@@ -537,6 +587,8 @@ export class ChatService {
           latitude: Number(first.latitude),
           longitude: Number(first.longitude),
           businessType: 'business',
+          province: first.province,
+          regency: first.regency,
         };
       }
     }

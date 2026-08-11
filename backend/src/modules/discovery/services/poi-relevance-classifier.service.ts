@@ -94,4 +94,52 @@ Rules:
       );
     }
   }
+
+  /**
+   * Asks Vertex AI which of the fixed `poi_type_strd` categories generate DEMAND (foot traffic /
+   * customers) for a given business type — the opposite question from classifyRelevantCategories,
+   * which finds peer/competitor categories. A coffee shop's demand drivers are schools and
+   * offices, not other coffee shops.
+   */
+  async classifyDemandDriverCategories(businessType: string): Promise<string[]> {
+    if (!this.model) {
+      throw new Error(
+        'AI category classifier is not configured. Cannot determine demand-driver POI types right now.',
+      );
+    }
+
+    const prompt = `You are selecting which POI categories generate DEMAND (foot traffic, potential customers) for a business of type "${businessType}".
+
+The ONLY valid categories you may choose from (this is the complete, fixed list — never invent others) are:
+${POI_TYPE_STRD_CATEGORIES.join(', ')}
+
+Rules:
+- Return a JSON array of category strings, using only exact values from the list above.
+- Only include categories whose presence nearby would plausibly bring customers TO "${businessType}" (e.g. schools/offices bring customers to a coffee shop) — this is about who generates demand, not who the business competes with.
+- Do NOT include "${businessType}" itself or its direct same-type peers/competitors — that is a separate concern (competition), not demand.
+- If none of the categories are genuine demand drivers for "${businessType}", return an empty array [].
+- Respond with ONLY the JSON array — no explanation, no markdown fences.`;
+
+    try {
+      const result = await this.model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      });
+      const text =
+        result.response.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '[]';
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      const validCategories = new Set(POI_TYPE_STRD_CATEGORIES);
+      return parsed.filter((c: any) => typeof c === 'string' && validCategories.has(c));
+    } catch (err: any) {
+      this.logger.error(`Demand-driver classification error: ${err.message}`);
+      throw new Error(
+        `Couldn't determine demand-driver POI categories for "${businessType}" — please try again.`,
+      );
+    }
+  }
 }

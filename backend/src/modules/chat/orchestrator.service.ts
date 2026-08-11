@@ -188,6 +188,7 @@ export class OrchestratorService {
         lat: Number(loc.latitude),
         lng: Number(loc.longitude),
         radiusKm: 2.0,
+        category: loc.businessType || 'coffee_shop',
         locationName: loc.name,
       });
       context.catchmentData = {

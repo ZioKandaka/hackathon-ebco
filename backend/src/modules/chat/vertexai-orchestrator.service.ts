@@ -14,7 +14,7 @@ export interface ToolCallExecutionMap {
     radiusKm?: number;
     filters?: Array<{ column: string; operator: string; value: string }>;
   }) => Promise<any>;
-  catchment_score?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean }) => Promise<any>;
+  catchment_score?: (args: { category?: string; locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; radiusKm?: number; ignoreCompetition?: boolean; ignoreSaturation?: boolean }) => Promise<any>;
   accessibility_analysis?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string; travelMode?: 'drive' | 'walk' | 'transit'; timeMinutes?: number }) => Promise<any>;
   ai_site_visit?: (args: { locationNameOrId?: string; latitude?: number; longitude?: number; address?: string }) => Promise<any>;
 }
@@ -69,7 +69,8 @@ Use available tools when the user's message implies location analysis, candidate
 When the user refers to a previously discovered candidate spot (e.g. 'spot 2' or candidate name), use its latitude/longitude from the earlier conversation turn directly as the latitude/longitude arguments for catchment_score, accessibility_analysis, or ai_site_visit — do not assume it is a saved business location.
 If required arguments for a tool are missing, ask the user a clarifying question in plain text.
 If no tool is needed, respond directly in plain text.
-Always call the appropriate tool for the user's CURRENT message, even if an identical or very similar request appears earlier in the conversation history — a repeated request means the user wants the results shown again (e.g. after a page refresh), not a reminder that it was already answered. Never skip a tool call, or reply with only a reference to a previous answer, just because a similar request was already made earlier in this conversation.`;
+Always call the appropriate tool for the user's CURRENT message, even if an identical or very similar request appears earlier in the conversation history — a repeated request means the user wants the results shown again (e.g. after a page refresh), not a reminder that it was already answered. Never skip a tool call, or reply with only a reference to a previous answer, just because a similar request was already made earlier in this conversation.
+For catchment_score specifically: if a follow-up message only changes the business category (e.g. "what about a book store instead?"), reuse the same location/address and radius from the most recent catchment_score call in this conversation rather than asking the user to repeat it. After a successful catchment_score call, your reply MUST be only a short one-sentence pointer to the results panel (e.g. "Catchment analysis for book store at Jl. Sudirman is ready — see the panel on the left.") — never restate the sub-scores, weights, or explanations in chat text, since the panel already shows the full breakdown.`;
 
     // Try Vertex AI function calling loop
     if (this.model) {
@@ -255,7 +256,7 @@ Always call the appropriate tool for the user's CURRENT message, even if an iden
         summaries.push(res.summary || 'Generated spatial density heatmap.');
       } else if (tool === 'catchment_score' && executors.catchment_score) {
         const targetLoc = userLocations[0]?.name || 'Sudirman Branch';
-        const res = await executors.catchment_score({ locationNameOrId: targetLoc, radiusKm: 2.0 });
+        const res = await executors.catchment_score({ locationNameOrId: targetLoc, category: 'coffee_shop', radiusKm: 2.0 });
         accumulatedPayloads.catchmentData = res;
         summaries.push(res.summary || 'Calculated location catchment score.');
       } else if (tool === 'accessibility_analysis' && executors.accessibility_analysis) {

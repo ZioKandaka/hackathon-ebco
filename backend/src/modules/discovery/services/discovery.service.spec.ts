@@ -2,11 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { DiscoveryService } from './discovery.service';
 import { BigQueryDiscoveryService } from './bigquery-discovery.service';
 import { PoiRelevanceClassifierService } from './poi-relevance-classifier.service';
+import { CatchmentExplanationService } from './catchment-explanation.service';
 
 describe('DiscoveryService', () => {
   let service: DiscoveryService;
   let mockBigQueryService: any;
   let mockPoiRelevanceClassifierService: any;
+  let mockCatchmentExplanationService: any;
 
   beforeEach(async () => {
     mockBigQueryService = {
@@ -19,6 +21,18 @@ describe('DiscoveryService', () => {
 
     mockPoiRelevanceClassifierService = {
       classifyRelevantCategories: jest.fn().mockResolvedValue(['coffee_shop', 'cafe', 'bakery']),
+      classifyDemandDriverCategories: jest.fn().mockResolvedValue(['school', 'corporate_office']),
+    };
+
+    mockCatchmentExplanationService = {
+      generateExplanations: jest.fn().mockResolvedValue({
+        demandDensity: 'Explained demand density.',
+        trafficProxy: 'Explained traffic proxy.',
+        areaQuality: 'Explained area quality.',
+        competitionPenalty: 'Explained competition penalty.',
+        networkSaturation: 'Explained network saturation.',
+        operationalVitality: 'Explained operational vitality.',
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -31,6 +45,10 @@ describe('DiscoveryService', () => {
         {
           provide: PoiRelevanceClassifierService,
           useValue: mockPoiRelevanceClassifierService,
+        },
+        {
+          provide: CatchmentExplanationService,
+          useValue: mockCatchmentExplanationService,
         },
       ],
     }).compile();
@@ -149,18 +167,22 @@ describe('DiscoveryService', () => {
   });
 
   describe('calculateCatchmentScore', () => {
-    it('should calculate 6 sub-scores and a composite score for a radius query', async () => {
+    it('should calculate 6 sub-scores and a composite score using exact standardizedCategory matches', async () => {
       mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([
-        { id: 'p1', name: 'School A', category: 'school', latitude: -6.2088, longitude: 106.8456, rating: 4.5, userRatingsTotal: 120, businessStatus: 'OPERATIONAL' },
-        { id: 'p2', name: 'Office B', category: 'office', latitude: -6.2090, longitude: 106.8460, rating: 4.2, userRatingsTotal: 80, businessStatus: 'OPERATIONAL' },
+        { id: 'p1', name: 'School A', category: 'SD Negeri A', standardizedCategory: 'school', distanceMeters: 300, latitude: -6.2088, longitude: 106.8456, rating: 4.5, userRatingsTotal: 120, businessStatus: 'OPERATIONAL' },
+        { id: 'p2', name: 'Kopi Rival', category: 'Coffee Place', standardizedCategory: 'coffee_shop', distanceMeters: 500, latitude: -6.2090, longitude: 106.8460, rating: 4.2, userRatingsTotal: 80, businessStatus: 'OPERATIONAL' },
       ]);
 
       const result = await service.calculateCatchmentScore({
         lat: -6.2088,
         lng: 106.8456,
         radiusKm: 2.0,
+        category: 'coffee_shop',
         locationName: 'Sudirman Branch',
       });
+
+      expect(mockPoiRelevanceClassifierService.classifyDemandDriverCategories).toHaveBeenCalledWith('coffee_shop');
+      expect(mockPoiRelevanceClassifierService.classifyRelevantCategories).toHaveBeenCalledWith('coffee_shop');
 
       expect(result).toBeDefined();
       expect(result.compositeScore).toBeGreaterThan(0);
@@ -171,6 +193,119 @@ describe('DiscoveryService', () => {
       expect(result.subScores.competitionPenalty).toBeDefined();
       expect(result.subScores.networkSaturation).toBeDefined();
       expect(result.subScores.operationalVitality).toBeDefined();
+      expect(result.weights.demandDensity).toBe(0.3);
+
+      // School A is a demand driver (standardizedCategory 'school'), Kopi Rival is a competitor
+      // ('coffee_shop' peer) — the raw noisy `category` text is irrelevant to this matching now.
+      expect(result.contributingPois.demandDensity.map((p) => p.name)).toEqual(['School A']);
+      expect(result.contributingPois.competitionPenalty.map((p) => p.name)).toEqual(['Kopi Rival']);
+    });
+
+    it('should keep Network Saturation at 0 when 2 or fewer competitors exist, regardless of concentration', async () => {
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([
+        { id: 'p1', name: 'Rival A', category: 'x', standardizedCategory: 'coffee_shop', distanceMeters: 100, latitude: -6.2088, longitude: 106.8456, rating: 4.0, userRatingsTotal: 10, businessStatus: 'OPERATIONAL' },
+        { id: 'p2', name: 'Rival B', category: 'x', standardizedCategory: 'coffee_shop', distanceMeters: 150, latitude: -6.2089, longitude: 106.8457, rating: 4.0, userRatingsTotal: 10, businessStatus: 'OPERATIONAL' },
+      ]);
+
+      const result = await service.calculateCatchmentScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        radiusKm: 2.0,
+        category: 'coffee_shop',
+        locationName: 'Sudirman Branch',
+      });
+
+      expect(result.subScores.networkSaturation).toBe(0);
+    });
+
+    it('should score Network Saturation independently of Competition Penalty based on concentration, not just count', async () => {
+      // 3 competitors, all inside the inner half of a 2km radius (1000m) -> tightly clustered.
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([
+        { id: 'p1', name: 'Rival A', category: 'x', standardizedCategory: 'coffee_shop', distanceMeters: 200, latitude: -6.2088, longitude: 106.8456, rating: 4.0, userRatingsTotal: 10, businessStatus: 'OPERATIONAL' },
+        { id: 'p2', name: 'Rival B', category: 'x', standardizedCategory: 'coffee_shop', distanceMeters: 300, latitude: -6.2089, longitude: 106.8457, rating: 4.0, userRatingsTotal: 10, businessStatus: 'OPERATIONAL' },
+        { id: 'p3', name: 'Rival C', category: 'x', standardizedCategory: 'coffee_shop', distanceMeters: 400, latitude: -6.2090, longitude: 106.8458, rating: 4.0, userRatingsTotal: 10, businessStatus: 'OPERATIONAL' },
+      ]);
+
+      const clustered = await service.calculateCatchmentScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        radiusKm: 2.0,
+        category: 'coffee_shop',
+        locationName: 'Sudirman Branch',
+      });
+
+      // Same 3-competitor count, but spread beyond the inner 1000m ring -> low concentration.
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([
+        { id: 'p1', name: 'Rival A', category: 'x', standardizedCategory: 'coffee_shop', distanceMeters: 1200, latitude: -6.2088, longitude: 106.8456, rating: 4.0, userRatingsTotal: 10, businessStatus: 'OPERATIONAL' },
+        { id: 'p2', name: 'Rival B', category: 'x', standardizedCategory: 'coffee_shop', distanceMeters: 1500, latitude: -6.2089, longitude: 106.8457, rating: 4.0, userRatingsTotal: 10, businessStatus: 'OPERATIONAL' },
+        { id: 'p3', name: 'Rival C', category: 'x', standardizedCategory: 'coffee_shop', distanceMeters: 1800, latitude: -6.2090, longitude: 106.8458, rating: 4.0, userRatingsTotal: 10, businessStatus: 'OPERATIONAL' },
+      ]);
+
+      const spread = await service.calculateCatchmentScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        radiusKm: 2.0,
+        category: 'coffee_shop',
+        locationName: 'Sudirman Branch',
+      });
+
+      expect(clustered.subScores.competitionPenalty).toBe(spread.subScores.competitionPenalty);
+      expect(clustered.subScores.networkSaturation).toBeGreaterThan(spread.subScores.networkSaturation);
+    });
+
+    it('should pass regionFilter through to the BigQuery radius query', async () => {
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([]);
+
+      await service.calculateCatchmentScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        radiusKm: 2.0,
+        category: 'coffee_shop',
+        locationName: 'Sudirman Branch',
+        regionFilter: 'Kota Jakarta Selatan',
+      });
+
+      expect(mockBigQueryService.queryPoisWithinRadius).toHaveBeenCalledWith(
+        -6.2088,
+        106.8456,
+        2000,
+        'Kota Jakarta Selatan',
+      );
+    });
+
+    it('should report zero POIs gracefully without calling the explanation service', async () => {
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([]);
+
+      const result = await service.calculateCatchmentScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        radiusKm: 2.0,
+        category: 'coffee_shop',
+        locationName: 'Sudirman Branch',
+      });
+
+      expect(result.poiCount).toBe(0);
+      expect(result.summary).toContain('No POIs found');
+      expect(result.explanations).toBeNull();
+      expect(mockCatchmentExplanationService.generateExplanations).not.toHaveBeenCalled();
+    });
+
+    it('should degrade gracefully to null explanations without failing the whole run', async () => {
+      mockBigQueryService.queryPoisWithinRadius = jest.fn().mockResolvedValue([
+        { id: 'p1', name: 'School A', category: 'x', standardizedCategory: 'school', distanceMeters: 300, latitude: -6.2088, longitude: 106.8456, rating: 4.5, userRatingsTotal: 120, businessStatus: 'OPERATIONAL' },
+      ]);
+      mockCatchmentExplanationService.generateExplanations.mockResolvedValueOnce(null);
+
+      const result = await service.calculateCatchmentScore({
+        lat: -6.2088,
+        lng: 106.8456,
+        radiusKm: 2.0,
+        category: 'coffee_shop',
+        locationName: 'Sudirman Branch',
+      });
+
+      expect(result.compositeScore).toBeGreaterThan(0);
+      expect(result.explanations).toBeNull();
     });
   });
 

@@ -27,6 +27,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/catchment',
+    name: 'Catchment',
+    component: () => import('../views/CatchmentView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/my-locations',
     name: 'MyLocations',
     component: () => import('../views/MyLocationsView.vue'),

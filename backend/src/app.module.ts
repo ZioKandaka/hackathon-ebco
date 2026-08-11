@@ -10,6 +10,7 @@ import { User } from './modules/users/entities/user.entity';
 import { ChatMessage } from './modules/chat/entities/chat-message.entity';
 import { UserLocation } from './modules/locations/entities/user-location.entity';
 import { IsochroneCache } from './modules/discovery/entities/isochrone-cache.entity';
+import { CatchmentAnalysisRun } from './modules/discovery/entities/catchment-analysis-run.entity';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { IsochroneCache } from './modules/discovery/entities/isochrone-cache.ent
       username: process.env.DB_USERNAME,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, ChatMessage, UserLocation, IsochroneCache],
+      entities: [User, ChatMessage, UserLocation, IsochroneCache, CatchmentAnalysisRun],
       synchronize: process.env.NODE_ENV !== 'production',
     }),
     AuthModule,

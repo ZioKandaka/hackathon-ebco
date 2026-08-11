@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { BigQueryDiscoveryService, RawPoiItem } from './bigquery-discovery.service';
+import { BigQueryDiscoveryService, RawPoiItem, RadiusPoiItem } from './bigquery-discovery.service';
 import { PoiRelevanceClassifierService } from './poi-relevance-classifier.service';
 import { RawHeatmapFilter, describeHeatmapFilter, validateHeatmapFilters } from './heatmap-filter.util';
+import {
+  CatchmentExplanationService,
+  CatchmentSubScoreKey,
+  ContributingPoiFact,
+} from './catchment-explanation.service';
 
 export interface DiscoveryCandidate {
   rank: number;
@@ -39,7 +44,10 @@ export interface CatchmentSubScores {
 export interface CatchmentCalculationResult {
   compositeScore: number;
   subScores: CatchmentSubScores;
+  weights: CatchmentSubScores;
   poiCount: number;
+  contributingPois: Record<CatchmentSubScoreKey, ContributingPoiFact[]>;
+  explanations: Record<CatchmentSubScoreKey, string> | null;
   summary: string;
 }
 
@@ -56,6 +64,7 @@ export class DiscoveryService {
   constructor(
     private readonly bigqueryDiscoveryService: BigQueryDiscoveryService,
     private readonly poiRelevanceClassifierService: PoiRelevanceClassifierService,
+    private readonly catchmentExplanationService: CatchmentExplanationService,
   ) {}
 
   async searchCandidates(
@@ -183,25 +192,32 @@ export class DiscoveryService {
     lat: number;
     lng: number;
     radiusKm: number;
-    businessType?: string;
+    category: string;
     locationName?: string;
+    regionFilter?: string;
     customWeights?: Partial<Record<keyof CatchmentSubScores, number>>;
   }): Promise<CatchmentCalculationResult> {
     const radiusMeters = Math.min(10000, Math.max(100, Math.round(options.radiusKm * 1000)));
+    const locName = options.locationName || 'location';
+
+    const [peerCategories, demandCategories] = await Promise.all([
+      this.poiRelevanceClassifierService.classifyRelevantCategories(options.category),
+      this.poiRelevanceClassifierService.classifyDemandDriverCategories(options.category),
+    ]);
+
     const rawPois = await this.bigqueryDiscoveryService.queryPoisWithinRadius(
       options.lat,
       options.lng,
       radiusMeters,
+      options.regionFilter,
     );
 
     const poiCount = rawPois.length;
-    const bType = (options.businessType || 'business').toLowerCase();
-    const demandCategories = this.bigqueryDiscoveryService.getDemandCategoriesForType(bType);
 
-    const demandPois = rawPois.filter((p) =>
-      demandCategories.some((dc) => (p.category || '').toLowerCase().includes(dc)),
-    );
-    const demandDensity = Math.min(100, Math.max(10, Math.round((demandPois.length / Math.max(1, poiCount)) * 120)));
+    const demandPois = rawPois.filter((p) => demandCategories.includes(p.standardizedCategory));
+    const demandDensity = poiCount > 0
+      ? Math.min(100, Math.max(10, Math.round((demandPois.length / poiCount) * 120)))
+      : 10;
 
     const totalRatings = rawPois.reduce((acc, p) => acc + (p.userRatingsTotal || 0), 0);
     const trafficProxy = Math.min(100, Math.max(10, Math.round(Math.log10(totalRatings + 1) * 28)));
@@ -212,17 +228,31 @@ export class DiscoveryService {
       : 4.0;
     const areaQuality = Math.min(100, Math.max(20, Math.round((avgRating / 5.0) * 100)));
 
-    const competitors = rawPois.filter((p) => (p.category || '').toLowerCase().includes(bType));
+    // Competitors: POIs matching this business's own peer category set (exact poi_type_strd
+    // match, not substring-matching noisy free-text) — same-type/adjacent businesses, i.e. real
+    // market competition.
+    const competitors = rawPois.filter((p) => peerCategories.includes(p.standardizedCategory));
     const competitionPenalty = Math.min(100, Math.round(competitors.length * 12));
 
-    const networkSaturation = Math.min(100, Math.max(0, (competitors.length - 2) * 20));
+    // Network Saturation is deliberately NOT a restatement of Competition Penalty's count: the
+    // source POI dataset has no brand/chain column, so true same-brand cannibalization can't be
+    // measured. Instead this measures CONCENTRATION — what fraction of competitors are clustered
+    // in the inner half of the radius vs. spread across the full radius. Two spots can have the
+    // identical competitor count but very different saturation if one is a tight cluster right at
+    // the site and the other is spread thinly across the whole area. Penalty only kicks in past
+    // the same >2 competitor threshold the original spec called for.
+    const innerRadiusMeters = radiusMeters * 0.5;
+    const competitorsInInnerRing = competitors.filter((p) => p.distanceMeters <= innerRadiusMeters);
+    const concentrationRatio = competitors.length > 0 ? competitorsInInnerRing.length / competitors.length : 0;
+    const networkSaturation = competitors.length <= 2 ? 0 : Math.min(100, Math.round(concentrationRatio * 100));
 
     const activePois = rawPois.filter((p) => (p.businessStatus || 'OPERATIONAL') === 'OPERATIONAL');
+    const inactivePois = rawPois.filter((p) => (p.businessStatus || 'OPERATIONAL') !== 'OPERATIONAL');
     const operationalVitality = poiCount > 0
       ? Math.round((activePois.length / poiCount) * 100)
       : 90;
 
-    const weights = {
+    const weights: CatchmentSubScores = {
       demandDensity: options.customWeights?.demandDensity ?? 0.30,
       trafficProxy: options.customWeights?.trafficProxy ?? 0.20,
       areaQuality: options.customWeights?.areaQuality ?? 0.20,
@@ -241,17 +271,52 @@ export class DiscoveryService {
 
     const compositeScore = Math.min(100, Math.max(1, Math.round(rawComposite)));
 
-    const locName = options.locationName || 'location';
-    const summary =
-      `Catchment analysis for ${locName} within ${options.radiusKm}km:\n\n` +
-      `• Overall Composite Score: ${compositeScore} / 100\n\n` +
-      `Sub-score Breakdown:\n` +
-      `- Demand Density: ${demandDensity}/100\n` +
-      `- Traffic Proxy: ${trafficProxy}/100\n` +
-      `- Area Quality: ${areaQuality}/100 (${avgRating.toFixed(1)} avg rating)\n` +
-      `- Competition Penalty: ${competitionPenalty}/100 (${competitors.length} competitors)\n` +
-      `- Network Saturation: ${networkSaturation}/100\n` +
-      `- Operational Vitality: ${operationalVitality}/100 (${activePois.length}/${poiCount} operating POIs)`;
+    const toFacts = (pois: RadiusPoiItem[]): ContributingPoiFact[] =>
+      [...pois]
+        .sort((a, b) => a.distanceMeters - b.distanceMeters)
+        .slice(0, 5)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          distanceMeters: p.distanceMeters,
+          rating: p.rating,
+          businessStatus: p.businessStatus,
+        }));
+
+    const contributingPois: Record<CatchmentSubScoreKey, ContributingPoiFact[]> = {
+      demandDensity: toFacts(demandPois),
+      trafficProxy: toFacts([...rawPois].sort((a, b) => (b.userRatingsTotal || 0) - (a.userRatingsTotal || 0)).slice(0, 5)),
+      areaQuality: toFacts([...validRatings].sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 5)),
+      competitionPenalty: toFacts(competitors),
+      networkSaturation: toFacts(competitorsInInnerRing),
+      operationalVitality: toFacts(inactivePois.length > 0 ? inactivePois : activePois),
+    };
+
+    const explanations = poiCount > 0
+      ? await this.catchmentExplanationService.generateExplanations({
+          category: options.category,
+          locationName: locName,
+          radiusKm: options.radiusKm,
+          subScores: { demandDensity, trafficProxy, areaQuality, competitionPenalty, networkSaturation, operationalVitality },
+          weights,
+          contributingPois,
+        })
+      : null;
+
+    const summary = poiCount === 0
+      ? `No POIs found within ${options.radiusKm}km of ${locName}. Try expanding the radius to ${(options.radiusKm * 1.5).toFixed(1)}km or ${(options.radiusKm * 2.5).toFixed(1)}km.`
+      : `Catchment analysis for ${locName} (${options.category}) within ${options.radiusKm}km:\n\n` +
+        `• Overall Composite Score: ${compositeScore} / 100\n\n` +
+        `Sub-score Breakdown:\n` +
+        `- Demand Density: ${demandDensity}/100\n` +
+        `- Traffic Proxy: ${trafficProxy}/100\n` +
+        `- Area Quality: ${areaQuality}/100 (${avgRating.toFixed(1)} avg rating)\n` +
+        `- Competition Penalty: ${competitionPenalty}/100 (${competitors.length} competitors)\n` +
+        `- Network Saturation: ${networkSaturation}/100\n` +
+        `- Operational Vitality: ${operationalVitality}/100 (${activePois.length}/${poiCount} operating POIs)`;
 
     return {
       compositeScore,
@@ -263,7 +328,10 @@ export class DiscoveryService {
         networkSaturation,
         operationalVitality,
       },
+      weights,
       poiCount,
+      contributingPois,
+      explanations,
       summary,
     };
   }

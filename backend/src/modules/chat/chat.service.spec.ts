@@ -8,6 +8,7 @@ import { DiscoveryService } from '../discovery/services/discovery.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
 import { OrchestratorService } from './orchestrator.service';
 import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
+import { CatchmentHistoryService } from '../discovery/services/catchment-history.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -18,6 +19,7 @@ describe('ChatService', () => {
   let mockSiteVisitService: any;
   let mockOrchestratorService: any;
   let mockVertexAiOrchestratorService: any;
+  let mockCatchmentHistoryService: any;
 
   beforeEach(async () => {
     mockRepository = {
@@ -48,6 +50,8 @@ describe('ChatService', () => {
           fullAddress: 'Jl. Sudirman No. 10, Jakarta',
           latitude: -6.2088,
           longitude: 106.8456,
+          province: 'DKI Jakarta',
+          regency: 'Kota Jakarta Selatan',
         },
       ]),
       findDuplicateLocation: jest.fn().mockResolvedValue(null),
@@ -90,7 +94,24 @@ describe('ChatService', () => {
           networkSaturation: 0,
           operationalVitality: 95,
         },
+        weights: {
+          demandDensity: 0.3,
+          trafficProxy: 0.2,
+          areaQuality: 0.2,
+          competitionPenalty: 0.15,
+          networkSaturation: 0.1,
+          operationalVitality: 0.05,
+        },
         poiCount: 140,
+        contributingPois: {
+          demandDensity: [],
+          trafficProxy: [],
+          areaQuality: [],
+          competitionPenalty: [],
+          networkSaturation: [],
+          operationalVitality: [],
+        },
+        explanations: null,
         summary: 'Catchment analysis for Sudirman Branch within 2km: Composite Score 82/100.',
       }),
       calculateAccessibilityScore: jest.fn().mockResolvedValue({
@@ -130,6 +151,11 @@ describe('ChatService', () => {
     };
 
     mockOrchestratorService = {};
+
+    mockCatchmentHistoryService = {
+      saveRun: jest.fn().mockResolvedValue({}),
+      getUserRuns: jest.fn().mockResolvedValue([]),
+    };
 
     mockVertexAiOrchestratorService = {
       processUserMessage: jest.fn().mockImplementation(async (msg, history, locations, executors, subject) => {
@@ -198,6 +224,10 @@ describe('ChatService', () => {
         {
           provide: SiteVisitService,
           useValue: mockSiteVisitService,
+        },
+        {
+          provide: CatchmentHistoryService,
+          useValue: mockCatchmentHistoryService,
         },
         {
           provide: OrchestratorService,
@@ -290,6 +320,114 @@ describe('ChatService', () => {
       expect(mockDiscoveryService.generateHeatmapDataset).toHaveBeenCalledWith(
         expect.objectContaining({ radiusKm: 3 }),
       );
+    });
+  });
+
+  describe('executeCatchmentSkill', () => {
+    it('should default the category to the saved business type when the user omits it', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.calculateCatchmentScore).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'coffee_shop', locationName: 'Sudirman Branch', radiusKm: 2.0 }),
+      );
+      expect(result.category).toBe('coffee_shop');
+    });
+
+    it('should let an explicit category override the saved business type (e.g. a chained "what about a book store instead" follow-up)', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { category: 'book store', locationNameOrId: 'Sudirman Branch' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.calculateCatchmentScore).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'book store' }),
+      );
+      expect(result.category).toBe('book store');
+    });
+
+    it('should ask a clarifying question instead of guessing when a bare address has no category (prospective new-site case)', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { address: 'Jl. Braga No. 1, Bandung' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(result.summary).toContain('What business category');
+      expect(mockDiscoveryService.calculateCatchmentScore).not.toHaveBeenCalled();
+    });
+
+    it('should resolve a prospective (non-saved) address with an explicit category end-to-end', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { category: 'coffee shop', address: 'Jl. Braga No. 1, Bandung' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.calculateCatchmentScore).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'coffee shop' }),
+      );
+      expect(result.compositeScore).toBe(82);
+    });
+
+    it('should pass regionFilter (regency/province) through to the calculation', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockDiscoveryService.calculateCatchmentScore).toHaveBeenCalledWith(
+        expect.objectContaining({ regionFilter: expect.anything() }),
+      );
+    });
+
+    it('should keep the chat-visible summary short — never restate scores/explanations in chat text', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(result.summary).not.toContain('Sub-score Breakdown');
+      expect(result.summary.length).toBeLessThan(150);
+    });
+
+    it('should persist the run via CatchmentHistoryService without failing the request if persistence errors', async () => {
+      const userLocations = await mockLocationsService.getUserLocations();
+      mockCatchmentHistoryService.saveRun.mockRejectedValueOnce(new Error('db down'));
+
+      const result = await service.executeCatchmentSkill(
+        'user-uuid-123',
+        { locationNameOrId: 'Sudirman Branch' },
+        userLocations,
+        {} as any,
+      );
+
+      expect(mockCatchmentHistoryService.saveRun).toHaveBeenCalled();
+      expect(result.compositeScore).toBe(82);
     });
   });
 

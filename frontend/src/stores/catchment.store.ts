@@ -1,0 +1,151 @@
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
+import { apiClient } from '../services/api.service';
+import { googleMapService } from '../services/google-map.service';
+import type { CatchmentDataPayload, CatchmentSubScores, CatchmentSubScoreKey, ContributingPoi } from '../services/chat-sse.service';
+
+const CENTER_MARKER_ID = 'catchment-center';
+
+export interface CatchmentRun {
+  id: string;
+  locationName: string;
+  category: string;
+  radiusKm: number;
+  compositeScore: number;
+  subScores: CatchmentSubScores;
+  weights: CatchmentSubScores;
+  poiCount: number;
+  contributingPois: Record<CatchmentSubScoreKey, ContributingPoi[]>;
+  explanations: Record<CatchmentSubScoreKey, string> | null;
+  center: { lat: number; lng: number };
+  summary: string;
+  createdAt: string;
+}
+
+// Raw shape returned by GET /catchment/history (the Postgres entity), distinct from the live
+// SSE CatchmentDataPayload shape — both get normalized into CatchmentRun below.
+interface RawHistoryRun {
+  id: string;
+  locationName: string;
+  category: string;
+  latitude: string | number;
+  longitude: string | number;
+  radiusKm: number;
+  compositeScore: number;
+  subScores: CatchmentSubScores;
+  weights: CatchmentSubScores;
+  poiCount: number;
+  contributingPois: Record<CatchmentSubScoreKey, ContributingPoi[]>;
+  explanations: Record<CatchmentSubScoreKey, string> | null;
+  summary: string;
+  createdAt: string;
+}
+
+function normalizeHistoryRun(raw: RawHistoryRun): CatchmentRun {
+  return {
+    id: raw.id,
+    locationName: raw.locationName,
+    category: raw.category,
+    radiusKm: raw.radiusKm,
+    compositeScore: raw.compositeScore,
+    subScores: raw.subScores,
+    weights: raw.weights,
+    poiCount: raw.poiCount,
+    contributingPois: raw.contributingPois,
+    explanations: raw.explanations,
+    center: { lat: Number(raw.latitude), lng: Number(raw.longitude) },
+    summary: raw.summary,
+    createdAt: raw.createdAt,
+  };
+}
+
+function normalizeLiveRun(payload: CatchmentDataPayload): CatchmentRun {
+  return {
+    id: payload.analysisId,
+    locationName: payload.locationName,
+    category: payload.category,
+    radiusKm: payload.radiusKm,
+    compositeScore: payload.compositeScore,
+    subScores: payload.subScores,
+    weights: payload.weights,
+    poiCount: payload.poiCount,
+    contributingPois: payload.contributingPois,
+    explanations: payload.explanations,
+    center: payload.center,
+    summary: payload.summary,
+    createdAt: payload.createdAt,
+  };
+}
+
+export const useCatchmentStore = defineStore('catchment', () => {
+  const runs = ref<CatchmentRun[]>([]);
+  const activeRun = ref<CatchmentRun | null>(null);
+  const selectedSubScore = ref<CatchmentSubScoreKey | null>(null);
+  const loading = ref(false);
+  const historyLoaded = ref(false);
+
+  async function fetchHistory() {
+    loading.value = true;
+    try {
+      const response = await apiClient.get<{ runs: RawHistoryRun[] }>('/catchment/history');
+      runs.value = (response.data.runs || []).map(normalizeHistoryRun);
+      historyLoaded.value = true;
+    } catch (err) {
+      runs.value = [];
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function addRun(payload: CatchmentDataPayload) {
+    const run = normalizeLiveRun(payload);
+    runs.value.unshift(run);
+    selectRun(run);
+  }
+
+  function selectRun(run: CatchmentRun) {
+    activeRun.value = run;
+    selectedSubScore.value = null;
+    googleMapService.clearNearbyPoiMarkers();
+    googleMapService.renderCatchmentCircle(run.center, run.radiusKm * 1000, { fitBounds: true });
+    googleMapService.addMarker(CENTER_MARKER_ID, {
+      position: run.center,
+      title: `${run.category} — ${run.locationName}`,
+    });
+  }
+
+  function selectSubScore(key: CatchmentSubScoreKey) {
+    if (!activeRun.value) return;
+
+    if (selectedSubScore.value === key) {
+      selectedSubScore.value = null;
+      googleMapService.clearNearbyPoiMarkers();
+      return;
+    }
+
+    selectedSubScore.value = key;
+    const pois = activeRun.value.contributingPois[key] || [];
+    googleMapService.renderNearbyPoiMarkers(pois);
+  }
+
+  function clearActiveRun() {
+    activeRun.value = null;
+    selectedSubScore.value = null;
+    googleMapService.clearNearbyPoiMarkers();
+    googleMapService.removeCatchmentCircle();
+    googleMapService.removeMarker(CENTER_MARKER_ID);
+  }
+
+  return {
+    runs,
+    activeRun,
+    selectedSubScore,
+    loading,
+    historyLoaded,
+    fetchHistory,
+    addRun,
+    selectRun,
+    selectSubScore,
+    clearActiveRun,
+  };
+});

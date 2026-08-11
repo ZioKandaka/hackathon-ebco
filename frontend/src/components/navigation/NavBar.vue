@@ -5,6 +5,7 @@
       <template v-if="authStore.isAuthenticated">
         <router-link to="/discover" class="nav-link">Discover</router-link>
         <router-link to="/heatmap" class="nav-link">Heatmap</router-link>
+        <router-link to="/catchment" class="nav-link">Catchment</router-link>
         <router-link to="/my-locations" class="nav-link">My Locations</router-link>
         <span class="user-email">{{ authStore.user?.email }}</span>
         <button @click="handleLogout" class="btn-logout" :disabled="authStore.loading">

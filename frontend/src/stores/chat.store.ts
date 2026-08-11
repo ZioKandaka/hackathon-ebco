@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { apiClient } from '../services/api.service';
 import { ChatSseService, ChatStreamEvent } from '../services/chat-sse.service';
 import { useDiscoveryStore } from './discovery.store';
+import { useCatchmentStore } from './catchment.store';
 import { googleMapService } from '../services/google-map.service';
 
 export interface ChatMessageItem {
@@ -77,11 +78,8 @@ export const useChatStore = defineStore('chat', () => {
           }
 
           if (event.catchmentData && event.catchmentData.center) {
-            googleMapService.renderCatchmentCircle(
-              event.catchmentData.center,
-              event.catchmentData.radiusKm * 1000,
-              { fitBounds: true },
-            );
+            const catchmentStore = useCatchmentStore();
+            catchmentStore.addRun(event.catchmentData);
           }
 
           if (event.accessibilityData && event.accessibilityData.polygonCoordinates) {

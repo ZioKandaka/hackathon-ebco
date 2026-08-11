@@ -58,4 +58,35 @@ describe('PoiRelevanceClassifierService', () => {
       /Couldn't determine relevant nearby POI categories/,
     );
   });
+
+  describe('classifyDemandDriverCategories', () => {
+    it('should return only categories present in the fixed poi_type_strd taxonomy', async () => {
+      mockModelResponse('["school", "corporate_office"]');
+      const cats = await service.classifyDemandDriverCategories('coffee shop');
+      expect(cats).toEqual(['school', 'corporate_office']);
+      cats.forEach((c) => expect(POI_TYPE_STRD_CATEGORIES).toContain(c));
+    });
+
+    it('should discard hallucinated categories that are not in the fixed taxonomy', async () => {
+      mockModelResponse('["school", "residential", "office"]');
+      const cats = await service.classifyDemandDriverCategories('coffee shop');
+      expect(cats).toEqual(['school']);
+    });
+
+    it('should throw a clear error instead of returning fabricated categories when the model is unconfigured', async () => {
+      (service as any).model = null;
+      await expect(service.classifyDemandDriverCategories('coffee_shop')).rejects.toThrow(
+        /AI category classifier is not configured/,
+      );
+    });
+
+    it('should throw a clear error instead of silently falling back when the model call fails', async () => {
+      (service as any).model = {
+        generateContent: jest.fn().mockRejectedValue(new Error('network error')),
+      };
+      await expect(service.classifyDemandDriverCategories('coffee_shop')).rejects.toThrow(
+        /Couldn't determine demand-driver POI categories/,
+      );
+    });
+  });
 });
