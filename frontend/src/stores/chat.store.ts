@@ -113,6 +113,17 @@ export const useChatStore = defineStore('chat', () => {
     );
   }
 
+  // Called on logout/login so the next account doesn't inherit this tab's in-memory state —
+  // historyLoaded in particular must be cleared, or AiChatPanel's mount guard permanently skips
+  // re-fetching for the rest of the tab's lifetime.
+  function resetStore() {
+    messages.value = [];
+    activeStatusStep.value = null;
+    errorMessage.value = null;
+    isStreaming.value = false;
+    historyLoaded.value = false;
+  }
+
   return {
     messages,
     activeStatusStep,
@@ -121,5 +132,6 @@ export const useChatStore = defineStore('chat', () => {
     historyLoaded,
     fetchHistory,
     sendMessage,
+    resetStore,
   };
 });

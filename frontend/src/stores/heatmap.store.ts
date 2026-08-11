@@ -105,6 +105,13 @@ export const useHeatmapStore = defineStore('heatmap', () => {
     googleMapService.removeMarker(CENTER_MARKER_ID);
   }
 
+  // Called on logout/login — clears this account's runs/history flag and its map layer/marker.
+  function resetStore() {
+    clearActiveRun();
+    runs.value = [];
+    historyLoaded.value = false;
+  }
+
   return {
     runs,
     activeRun,
@@ -114,5 +121,6 @@ export const useHeatmapStore = defineStore('heatmap', () => {
     addRun,
     selectRun,
     clearActiveRun,
+    resetStore,
   };
 });

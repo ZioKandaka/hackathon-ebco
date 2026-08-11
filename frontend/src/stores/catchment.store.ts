@@ -166,6 +166,14 @@ export const useCatchmentStore = defineStore('catchment', () => {
     googleMapService.removeMarker(CENTER_MARKER_ID);
   }
 
+  // Called on logout/login — clears this account's runs/history flag and any of its overlays
+  // still on the shared map, so the next account starts from a genuinely empty panel.
+  function resetStore() {
+    clearActiveRun();
+    runs.value = [];
+    historyLoaded.value = false;
+  }
+
   return {
     runs,
     activeRun,
@@ -177,5 +185,6 @@ export const useCatchmentStore = defineStore('catchment', () => {
     selectRun,
     selectSubScore,
     clearActiveRun,
+    resetStore,
   };
 });

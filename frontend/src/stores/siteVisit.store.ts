@@ -104,6 +104,13 @@ export const useSiteVisitStore = defineStore('siteVisit', () => {
     googleMapService.removeMarker(CENTER_MARKER_ID);
   }
 
+  // Called on logout/login — clears this account's runs/history flag and its map marker.
+  function resetStore() {
+    clearActiveRun();
+    runs.value = [];
+    historyLoaded.value = false;
+  }
+
   return {
     runs,
     activeRun,
@@ -113,5 +120,6 @@ export const useSiteVisitStore = defineStore('siteVisit', () => {
     addRun,
     selectRun,
     clearActiveRun,
+    resetStore,
   };
 });

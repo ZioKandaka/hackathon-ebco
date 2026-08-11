@@ -23,8 +23,16 @@ if [[ ! -f "$ENV_FILE" ]]; then
   echo "Missing $ENV_FILE. Copy .env.deploy.example to $ENV_FILE and fill in real values." >&2
   exit 1
 fi
-# shellcheck disable=SC1090
-set -a; source "$ENV_FILE"; set +a
+
+# Parsed line-by-line (not `source`d) so values with shell-special characters
+# (passwords/secrets containing &, >, {, ^, etc.) are read literally instead
+# of being interpreted as shell syntax.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+  if [[ "$line" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+    export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+  fi
+done < "$ENV_FILE"
 
 required_vars=(PROJECT_ID REGION SQL_INSTANCE_NAME DB_NAME DB_USERNAME DB_PASSWORD JWT_SECRET GOOGLE_MAPS_API_KEY BACKEND_SERVICE FRONTEND_SERVICE AR_REPO)
 for v in "${required_vars[@]}"; do

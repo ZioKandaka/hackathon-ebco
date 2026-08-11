@@ -173,6 +173,14 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     clearMarkers();
   }
 
+  // Called on logout/login — clears this account's runs/history flag and its map pins/overlays.
+  function resetStore() {
+    clearActiveRun();
+    runs.value = [];
+    historyLoaded.value = false;
+    error.value = null;
+  }
+
   return {
     runs,
     activeRun,
@@ -192,5 +200,6 @@ export const useDiscoveryStore = defineStore('discovery', () => {
     toggleNearbyPois,
     clearNearbyPois,
     clearActiveRun,
+    resetStore,
   };
 });

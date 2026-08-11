@@ -88,6 +88,13 @@ export const useLocationsStore = defineStore('locations', () => {
     }
   }
 
+  // Called on logout/login — clears this account's saved locations and their map pins.
+  function resetStore() {
+    locations.value = [];
+    error.value = null;
+    clearMarkers();
+  }
+
   return {
     locations,
     loading,
@@ -96,5 +103,6 @@ export const useLocationsStore = defineStore('locations', () => {
     renderLocationPins,
     updateLocation,
     deleteLocation,
+    resetStore,
   };
 });

@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
+import { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -9,6 +10,14 @@ async function bootstrap() {
 
   app.use(cookieParser());
   app.setGlobalPrefix('api/v1');
+
+  // Every response here is user-scoped (auth'd via cookie/JWT) and dynamic — never let the
+  // browser's HTTP cache reuse one user's response for another user's request to the same URL
+  // after an account switch in the same tab.
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({

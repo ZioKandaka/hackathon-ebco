@@ -1,20 +1,23 @@
 <template>
   <div class="chat-input-container">
     <form @submit.prevent="handleSend" class="chat-input-form">
-      <input
+      <textarea
         v-model="inputMessage"
-        type="text"
-        placeholder="Ask AI assistant..."
+        placeholder="Ask AI assistant... (Enter to send, Shift+Enter for a new line)"
         class="chat-input-field"
+        rows="4"
         :disabled="disabled"
-      />
-      <button
-        type="submit"
-        class="btn-send"
-        :disabled="disabled || !inputMessage.trim()"
-      >
-        Send
-      </button>
+        @keydown="handleKeydown"
+      ></textarea>
+      <div class="input-actions">
+        <button
+          type="submit"
+          class="btn-send"
+          :disabled="disabled || !inputMessage.trim()"
+        >
+          Send
+        </button>
+      </div>
     </form>
   </div>
 </template>
@@ -39,6 +42,13 @@ function handleSend() {
     inputMessage.value = '';
   }
 }
+
+function handleKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    handleSend();
+  }
+}
 </script>
 
 <style scoped>
@@ -50,16 +60,23 @@ function handleSend() {
 
 .chat-input-form {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
 }
 
 .chat-input-field {
-  flex: 1;
-  padding: 0.625rem 0.875rem;
+  width: 100%;
+  padding: 0.75rem 0.875rem;
   border: 1px solid #cbd5e0;
   border-radius: 6px;
   font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.5;
   outline: none;
+  resize: vertical;
+  min-height: 5.5rem;
+  max-height: 16rem;
+  box-sizing: border-box;
 }
 
 .chat-input-field:focus {
@@ -67,8 +84,13 @@ function handleSend() {
   box-shadow: 0 0 0 2px rgba(49, 130, 206, 0.2);
 }
 
+.input-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .btn-send {
-  padding: 0.625rem 1rem;
+  padding: 0.625rem 1.25rem;
   background-color: #3182ce;
   color: white;
   border: none;
