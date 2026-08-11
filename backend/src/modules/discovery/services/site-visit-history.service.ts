@@ -14,6 +14,7 @@ export class SiteVisitHistoryService {
   async saveRun(
     userId: string,
     input: {
+      locationId?: string;
       locationName: string;
       latitude: number;
       longitude: number;
@@ -21,6 +22,7 @@ export class SiteVisitHistoryService {
   ): Promise<SiteVisitReport> {
     const report = this.siteVisitReportRepository.create({
       userId,
+      locationId: input.locationId,
       locationName: input.locationName,
       latitude: input.latitude,
       longitude: input.longitude,

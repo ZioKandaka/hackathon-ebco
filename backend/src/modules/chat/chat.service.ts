@@ -5,10 +5,12 @@ import { Observable, Subject } from 'rxjs';
 import { ChatMessage, MessageSender } from './entities/chat-message.entity';
 import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
-import { DiscoveryService } from '../discovery/services/discovery.service';
+import { DiscoveryService, DiscoveryCandidate } from '../discovery/services/discovery.service';
+import { DiscoveryHistoryService } from '../discovery/services/discovery-history.service';
 import { SiteVisitService, VisualCriteriaMap, SiteVisitImageType } from '../discovery/services/site-visit.service';
 import { SiteVisitHistoryService } from '../discovery/services/site-visit-history.service';
 import { CatchmentHistoryService } from '../discovery/services/catchment-history.service';
+import { HeatmapHistoryService } from '../discovery/services/heatmap-history.service';
 import { CatchmentSubScoreKey, ContributingPoiFact } from '../discovery/services/catchment-explanation.service';
 import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
 
@@ -26,6 +28,7 @@ export interface HeatmapPoint {
 
 export interface HeatmapDataPayload {
   queryId: string;
+  locationId?: string;
   category: string;
   locationName: string;
   radiusKm: number;
@@ -33,6 +36,7 @@ export interface HeatmapDataPayload {
   pointCount: number;
   points: HeatmapPoint[];
   summary: string;
+  createdAt: string;
 }
 
 export interface CatchmentSubScores {
@@ -76,6 +80,7 @@ export interface TravelBoundaryDataPayload {
 
 export interface SiteVisitDataPayload {
   reportId: string;
+  locationId?: string;
   locationName: string;
   hasStreetViewCoverage: boolean;
   overallVisualScore: number;
@@ -86,11 +91,20 @@ export interface SiteVisitDataPayload {
   createdAt: string;
 }
 
+export interface DiscoveryDataPayload {
+  searchId: string;
+  businessType: string;
+  region: string;
+  candidates: DiscoveryCandidate[];
+  summary: string;
+  createdAt: string;
+}
+
 export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
   content?: string;
-  candidates?: any[];
+  discoveryData?: DiscoveryDataPayload;
   heatmapData?: HeatmapDataPayload;
   catchmentData?: CatchmentDataPayload;
   travelBoundaryData?: TravelBoundaryDataPayload;
@@ -124,9 +138,11 @@ export class ChatService {
     private readonly geocodingService: GeocodingService,
     private readonly locationsService: LocationsService,
     private readonly discoveryService: DiscoveryService,
+    private readonly discoveryHistoryService: DiscoveryHistoryService,
     private readonly siteVisitService: SiteVisitService,
     private readonly siteVisitHistoryService: SiteVisitHistoryService,
     private readonly catchmentHistoryService: CatchmentHistoryService,
+    private readonly heatmapHistoryService: HeatmapHistoryService,
     private readonly vertexAiOrchestratorService: VertexAiOrchestratorService,
   ) {}
 
@@ -187,7 +203,7 @@ export class ChatService {
           data: {
             type: 'message',
             content: result.textResponse,
-            candidates: result.accumulatedPayloads.candidates,
+            discoveryData: result.accumulatedPayloads.discoveryData,
             heatmapData: result.accumulatedPayloads.heatmapData,
             catchmentData: result.accumulatedPayloads.catchmentData,
             travelBoundaryData: result.accumulatedPayloads.travelBoundaryData,
@@ -242,6 +258,7 @@ export class ChatService {
     // no way to load its imagery. Let a save failure propagate as a real error instead of
     // returning a payload that can't actually render.
     const saved = await this.siteVisitHistoryService.saveRun(userId, {
+      locationId: matchedLocation.id,
       locationName: matchedLocation.name,
       latitude: center.lat,
       longitude: center.lng,
@@ -250,6 +267,7 @@ export class ChatService {
 
     const siteVisitData: SiteVisitDataPayload = {
       reportId: saved.id,
+      locationId: matchedLocation.id,
       locationName: matchedLocation.name,
       hasStreetViewCoverage: result.hasStreetViewCoverage,
       overallVisualScore: result.overallVisualScore,
@@ -353,6 +371,7 @@ export class ChatService {
 
     try {
       await this.catchmentHistoryService.saveRun(userId, {
+        locationId: matchedLocation.id,
         locationName: matchedLocation.name,
         category,
         latitude: center.lat,
@@ -455,9 +474,29 @@ export class ChatService {
       filters: args.filters,
     });
 
-    const queryId = `hm-${Date.now().toString(36)}`;
+    let saved: { id: string; createdAt: Date };
+    try {
+      saved = await this.heatmapHistoryService.saveRun(userId, {
+        locationId: matchedLocation.id,
+        locationName: matchedLocation.name,
+        category,
+        latitude: center.lat,
+        longitude: center.lng,
+        radiusKm,
+        points: result.points,
+        filters: args.filters,
+        summary: result.summary,
+      });
+    } catch (err: any) {
+      // Persistence failure shouldn't take down an otherwise-successful heatmap query — the user
+      // still gets their result this turn, it just won't survive a refresh.
+      console.error('Failed to persist heatmap query run:', err.message);
+      saved = { id: `hm-${Date.now().toString(36)}`, createdAt: new Date() };
+    }
+
     const heatmapData: HeatmapDataPayload = {
-      queryId,
+      queryId: saved.id,
+      locationId: matchedLocation.id,
       category,
       locationName: matchedLocation.name,
       radiusKm,
@@ -465,6 +504,7 @@ export class ChatService {
       pointCount: result.points.length,
       points: result.points,
       summary: result.summary,
+      createdAt: saved.createdAt.toISOString(),
     };
 
     return heatmapData;
@@ -482,26 +522,44 @@ export class ChatService {
       count,
     );
 
-    if (candidates.length === 0) {
-      return {
-        candidates: [],
-        summary: `No strong candidate spots found matching low-competition criteria for ${args.businessType} in ${args.region}. Try broadening the target area.`,
-      };
+    const summary =
+      candidates.length === 0
+        ? `No strong candidate spots found matching low-competition criteria for ${args.businessType} in ${args.region}. Try broadening the target area.`
+        : (() => {
+            const formattedList = candidates
+              .map(
+                (c) =>
+                  `Spot ${c.rank}: ${c.name} (Score: ${c.demandScore}/100, Latitude: ${c.latitude}, Longitude: ${c.longitude}, Competition: ${c.competitionCount})\n  • Rationale: ${c.rationale}`,
+              )
+              .join('\n\n');
+            return `Here are the top candidate spots for ${args.businessType} in ${args.region}:\n\n${formattedList}\n\nPins have been rendered on your map. Click any pin to inspect details.`;
+          })();
+
+    let saved: { id: string; createdAt: Date };
+    try {
+      saved = await this.discoveryHistoryService.saveRun(userId, {
+        businessType: args.businessType,
+        region: args.region,
+        candidates,
+        summary,
+      });
+    } catch (err: any) {
+      // Persistence failure shouldn't take down an otherwise-successful search — the user still
+      // gets their results this turn, it just won't survive a refresh.
+      console.error('Failed to persist discovery search run:', err.message);
+      saved = { id: `ds-${Date.now().toString(36)}`, createdAt: new Date() };
     }
 
-    const formattedList = candidates
-      .map(
-        (c) =>
-          `Spot ${c.rank}: ${c.name} (Score: ${c.demandScore}/100, Latitude: ${c.latitude}, Longitude: ${c.longitude}, Competition: ${c.competitionCount})\n  • Rationale: ${c.rationale}`,
-      )
-      .join('\n\n');
-
-    const resultMessage = `Here are the top candidate spots for ${args.businessType} in ${args.region}:\n\n${formattedList}\n\nPins have been rendered on your map. Click any pin to inspect details.`;
-
-    return {
+    const discoveryData: DiscoveryDataPayload = {
+      searchId: saved.id,
+      businessType: args.businessType,
+      region: args.region,
       candidates,
-      summary: resultMessage,
+      summary,
+      createdAt: saved.createdAt.toISOString(),
     };
+
+    return discoveryData;
   }
 
   async executeAddBranchSkill(

@@ -1,3 +1,24 @@
+export interface DiscoveryCandidate {
+  rank: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  demandScore: number;
+  competitionCount: number;
+  rationale: string;
+  regencyCode?: string;
+  businessType: string;
+}
+
+export interface DiscoveryDataPayload {
+  searchId: string;
+  businessType: string;
+  region: string;
+  candidates: DiscoveryCandidate[];
+  summary: string;
+  createdAt: string;
+}
+
 export interface HeatmapPoint {
   lat: number;
   lng: number;
@@ -12,6 +33,7 @@ export interface HeatmapPoint {
 
 export interface HeatmapDataPayload {
   queryId: string;
+  locationId?: string;
   category: string;
   locationName: string;
   radiusKm: number;
@@ -19,6 +41,7 @@ export interface HeatmapDataPayload {
   pointCount: number;
   points: HeatmapPoint[];
   summary: string;
+  createdAt: string;
 }
 
 export interface CatchmentSubScores {
@@ -90,6 +113,7 @@ export interface SiteVisitCriteria {
 
 export interface SiteVisitDataPayload {
   reportId: string;
+  locationId?: string;
   locationName: string;
   hasStreetViewCoverage: boolean;
   overallVisualScore: number;
@@ -104,7 +128,7 @@ export interface ChatStreamEvent {
   type: 'status' | 'message' | 'error' | 'done';
   step?: string;
   content?: string;
-  candidates?: any[];
+  discoveryData?: DiscoveryDataPayload;
   heatmapData?: HeatmapDataPayload;
   catchmentData?: CatchmentDataPayload;
   travelBoundaryData?: TravelBoundaryDataPayload;

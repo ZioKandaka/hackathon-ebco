@@ -1,8 +1,9 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserLocation } from '../entities/user-location.entity';
 import { CreateLocationDto } from '../dto/create-location.dto';
+import { UpdateLocationDto } from '../dto/update-location.dto';
 
 @Injectable()
 export class LocationsService {
@@ -46,5 +47,24 @@ export class LocationsService {
     });
 
     return this.locationRepository.save(location);
+  }
+
+  async updateLocation(userId: string, id: string, dto: UpdateLocationDto): Promise<UserLocation> {
+    const location = await this.locationRepository.findOne({ where: { id, userId } });
+    if (!location) {
+      throw new NotFoundException('Location not found.');
+    }
+
+    Object.assign(location, dto);
+    return this.locationRepository.save(location);
+  }
+
+  async deleteLocation(userId: string, id: string): Promise<void> {
+    const location = await this.locationRepository.findOne({ where: { id, userId } });
+    if (!location) {
+      throw new NotFoundException('Location not found.');
+    }
+
+    await this.locationRepository.remove(location);
   }
 }

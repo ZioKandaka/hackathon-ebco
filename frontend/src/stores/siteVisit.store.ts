@@ -6,6 +6,7 @@ import type { SiteVisitDataPayload, SiteVisitCriteria, SiteVisitImageType } from
 
 export interface SiteVisitRun {
   id: string;
+  locationId?: string;
   locationName: string;
   hasStreetViewCoverage: boolean;
   overallVisualScore: number;
@@ -20,6 +21,7 @@ export interface SiteVisitRun {
 // SSE SiteVisitDataPayload shape — both get normalized into SiteVisitRun below.
 interface RawHistoryReport {
   id: string;
+  locationId?: string;
   locationName: string;
   latitude: string | number;
   longitude: string | number;
@@ -34,6 +36,7 @@ interface RawHistoryReport {
 function normalizeHistoryReport(raw: RawHistoryReport): SiteVisitRun {
   return {
     id: raw.id,
+    locationId: raw.locationId,
     locationName: raw.locationName,
     hasStreetViewCoverage: raw.hasStreetViewCoverage,
     overallVisualScore: raw.overallVisualScore,
@@ -50,6 +53,7 @@ const CENTER_MARKER_ID = 'site-visit-center';
 function normalizeLiveRun(payload: SiteVisitDataPayload): SiteVisitRun {
   return {
     id: payload.reportId,
+    locationId: payload.locationId,
     locationName: payload.locationName,
     hasStreetViewCoverage: payload.hasStreetViewCoverage,
     overallVisualScore: payload.overallVisualScore,

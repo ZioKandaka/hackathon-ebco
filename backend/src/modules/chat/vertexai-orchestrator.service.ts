@@ -36,7 +36,7 @@ class ToolExecutionError extends Error {}
 export interface OrchestrationResult {
   textResponse: string;
   accumulatedPayloads: {
-    candidates?: any[];
+    discoveryData?: any;
     heatmapData?: any;
     catchmentData?: any;
     travelBoundaryData?: any;
@@ -156,7 +156,7 @@ For catchment_score specifically: if a follow-up message only changes the busine
                   toolResult = await executors.add_business(args);
                 } else if (toolName === 'discover_locations' && executors.discover_locations) {
                   const res = await executors.discover_locations(args);
-                  accumulatedPayloads.candidates = res.candidates || res;
+                  accumulatedPayloads.discoveryData = res;
                   toolResult = res;
                 } else if (toolName === 'generate_heatmap' && executors.generate_heatmap) {
                   const res = await executors.generate_heatmap(args);
@@ -264,8 +264,8 @@ For catchment_score specifically: if a follow-up message only changes the busine
 
       if (tool === 'discover_locations' && executors.discover_locations) {
         const res = await executors.discover_locations({ businessType: 'coffee_shop', region: 'Kediri' });
-        accumulatedPayloads.candidates = res.candidates || res;
-        summaries.push(`Found ${accumulatedPayloads.candidates?.length || 0} discovery candidates.`);
+        accumulatedPayloads.discoveryData = res;
+        summaries.push(`Found ${res.candidates?.length || 0} discovery candidates.`);
       } else if (tool === 'generate_heatmap' && executors.generate_heatmap) {
         const res = await executors.generate_heatmap({ category: 'coffee_shop', locationNameOrId: 'Kediri' });
         accumulatedPayloads.heatmapData = res;

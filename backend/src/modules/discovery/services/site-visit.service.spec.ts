@@ -133,6 +133,20 @@ describe('SiteVisitService', () => {
         'Could not complete AI visual analysis',
       );
     });
+
+    it('should correctly parse a valid JSON object even when the model appends trailing content after it', async () => {
+      mockAxiosDefaults(true);
+      // Reproduces a real failure mode: a greedy `/\{[\s\S]*\}/` regex would grab everything up
+      // to the LAST '}' in the text below (including the trailing note), producing an invalid
+      // combined string and a "non-whitespace character after JSON" parse error.
+      mockModelResponse(
+        `${JSON.stringify(fullCriteria)}\n\nNote: scores are based on the images provided. {"unrelated": true}`,
+      );
+
+      const result = await service.analyzeSite(-6.2088, 106.8456, 'Sudirman Branch');
+
+      expect(result.criteria).toEqual(fullCriteria);
+    });
   });
 
   describe('fetchImageBuffer', () => {

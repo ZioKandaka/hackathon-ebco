@@ -16,6 +16,11 @@ describe('DiscoveryService', () => {
         { id: '1', name: 'Spot 1', category: 'university', latitude: -7.8167, longitude: 112.0117 },
         { id: '2', name: 'Spot 2', category: 'office', latitude: -7.8170, longitude: 112.0120 },
       ]),
+      queryPoisWithinRadius: jest.fn().mockResolvedValue([
+        { id: 'n1', name: 'SDN 1', category: 'school', standardizedCategory: 'school', latitude: -7.8167, longitude: 112.0117, distanceMeters: 200 },
+        { id: 'n2', name: 'Rival Coffee', category: 'coffee_shop', standardizedCategory: 'coffee_shop', latitude: -7.8168, longitude: 112.0118, distanceMeters: 300 },
+        { id: 'n3', name: 'Generic Store', category: 'store', standardizedCategory: 'store', latitude: -7.8169, longitude: 112.0119, distanceMeters: 400 },
+      ]),
       getDemandCategoriesForType: jest.fn().mockReturnValue(['school', 'office']),
     };
 
@@ -61,14 +66,30 @@ describe('DiscoveryService', () => {
   });
 
   describe('searchCandidates', () => {
-    it('should return ranked candidate spots with scores and rationales', async () => {
+    it('should return ranked candidate spots with real BigQuery-derived scores, not fabricated placeholders', async () => {
       const candidates = await service.searchCandidates('coffee_shop', 'Kediri', 5);
 
       expect(candidates).toBeDefined();
       expect(candidates.length).toBe(2);
       expect(candidates[0].rank).toBe(1);
-      expect(candidates[0].demandScore).toBeGreaterThan(0);
-      expect(candidates[0].rationale).toBeDefined();
+      // 1 demand-category POI ("school") out of 3 nearby -> round((1/3)*120) = 40
+      expect(candidates[0].demandScore).toBe(40);
+      // 1 competitor-category POI ("coffee_shop") out of 3 nearby
+      expect(candidates[0].competitionCount).toBe(1);
+      expect(candidates[0].rationale).toContain('school');
+      expect(mockPoiRelevanceClassifierService.classifyDemandDriverCategories).toHaveBeenCalledWith('coffee_shop');
+      expect(mockPoiRelevanceClassifierService.classifyRelevantCategories).toHaveBeenCalledWith('coffee_shop');
+      expect(mockBigQueryService.queryPoisWithinRadius).toHaveBeenCalledWith(-7.8167, 112.0117, 1000);
+    });
+
+    it('should never return the old fabricated index-derived scores (60-95 clamp, index%2 competition)', async () => {
+      mockBigQueryService.queryPoisWithinRadius.mockResolvedValue([]);
+      const candidates = await service.searchCandidates('coffee_shop', 'Kediri', 5);
+
+      // With zero nearby POIs at all, demandScore falls back to the floor (10), not a fabricated
+      // rank-based number in the 60-95 range the old implementation always produced.
+      expect(candidates[0].demandScore).toBe(10);
+      expect(candidates[0].competitionCount).toBe(0);
     });
   });
 

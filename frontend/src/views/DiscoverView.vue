@@ -5,83 +5,99 @@
       <h1>Discover Candidates</h1>
       <p class="subtitle">AI-assisted site selection & POI density analysis</p>
 
-      <div v-if="discoveryStore.loading" class="loading-state">
-        Analyzing BigQuery POI datasets...
+      <div v-if="discoveryStore.loading && !discoveryStore.historyLoaded" class="loading-state">
+        Loading search history...
       </div>
 
-      <div v-else-if="discoveryStore.candidates.length === 0" class="empty-state">
-        <p>No active search results.</p>
+      <div v-else-if="discoveryStore.runs.length === 0" class="empty-state">
+        <p>No searches yet.</p>
         <small>Use the AI Chat Assistant to "Find top 5 spots for a coffee shop in Kediri"!</small>
       </div>
 
-      <ul v-else class="candidate-list">
-        <li
-          v-for="spot in discoveryStore.candidates"
-          :key="spot.rank"
-          @click="discoveryStore.selectCandidate(spot)"
-          class="candidate-card"
-          :class="{ active: discoveryStore.selectedCandidate?.rank === spot.rank }"
-        >
-          <div class="card-header">
-            <span class="spot-rank">Spot #{{ spot.rank }}</span>
-            <span class="score-badge">Score: {{ spot.demandScore }}</span>
-          </div>
-          <p class="spot-name">{{ spot.name }}</p>
-          <p class="rationale-text">{{ spot.rationale }}</p>
-
-          <!-- Show Nearby POI Toggle Button (US1) -->
-          <div class="card-actions">
-            <button
-              class="btn-nearby-poi"
-              :class="{ active: discoveryStore.activePoiCandidateRank === spot.rank }"
-              @click.stop="discoveryStore.toggleNearbyPois(spot)"
-            >
-              <span v-if="discoveryStore.nearbyPoiLoading && discoveryStore.activePoiCandidateRank === spot.rank">
-                Loading POIs...
-              </span>
-              <span v-else-if="discoveryStore.activePoiCandidateRank === spot.rank">
-                Hide Nearby POI
-              </span>
-              <span v-else>
-                Show Nearby POI
-              </span>
-            </button>
-          </div>
-
-          <!-- Zero POI Notice (T014) -->
-          <div
-            v-if="discoveryStore.activePoiCandidateRank === spot.rank && !discoveryStore.nearbyPoiLoading && discoveryStore.nearbyPois.length === 0"
-            class="zero-poi-notice"
+      <template v-else>
+        <!-- History strip -->
+        <div class="history-strip">
+          <button
+            v-for="run in discoveryStore.runs"
+            :key="run.id"
+            class="history-chip"
+            :class="{ active: discoveryStore.activeRun?.id === run.id }"
+            @click="discoveryStore.selectRun(run)"
           >
-            No relevant nearby POIs found within 2km.
-          </div>
+            <span class="chip-region">{{ run.businessType }} · {{ run.region }}</span>
+            <span class="chip-count">{{ run.candidates.length }} spots</span>
+          </button>
+        </div>
 
-          <!-- Nearby POIs List with Names & Metrics -->
-          <div
-            v-if="discoveryStore.activePoiCandidateRank === spot.rank && discoveryStore.nearbyPois.length > 0"
-            class="nearby-poi-box"
+        <ul v-if="discoveryStore.activeRun" class="candidate-list">
+          <li
+            v-for="spot in discoveryStore.activeRun.candidates"
+            :key="spot.rank"
+            @click="discoveryStore.selectCandidate(spot)"
+            class="candidate-card"
+            :class="{ active: discoveryStore.selectedCandidate?.rank === spot.rank }"
           >
-            <div class="nearby-box-title">
-              Nearby POIs ({{ discoveryStore.nearbyPois.length }} within 2km):
+            <div class="card-header">
+              <span class="spot-rank">Spot #{{ spot.rank }}</span>
+              <span class="score-badge">Score: {{ spot.demandScore }}</span>
             </div>
-            <ul class="nearby-poi-list">
-              <li
-                v-for="poi in discoveryStore.nearbyPois.slice(0, 6)"
-                :key="poi.id"
-                class="nearby-poi-row"
+            <p class="spot-name">{{ spot.name }}</p>
+            <p class="rationale-text">{{ spot.rationale }}</p>
+
+            <!-- Show Nearby POI Toggle Button (US1) -->
+            <div class="card-actions">
+              <button
+                class="btn-nearby-poi"
+                :class="{ active: discoveryStore.activePoiCandidateRank === spot.rank }"
+                @click.stop="discoveryStore.toggleNearbyPois(spot)"
               >
-                <span class="poi-name">{{ poi.name }}</span>
-                <span class="poi-meta">
-                  ★ {{ poi.rating || '4.0' }} • {{ poi.distanceMeters }}m
+                <span v-if="discoveryStore.nearbyPoiLoading && discoveryStore.activePoiCandidateRank === spot.rank">
+                  Loading POIs...
                 </span>
-              </li>
-            </ul>
-            <div v-if="discoveryStore.nearbyPois.length > 6" class="nearby-more-text">
-              + {{ discoveryStore.nearbyPois.length - 6 }} more pins on map
+                <span v-else-if="discoveryStore.activePoiCandidateRank === spot.rank">
+                  Hide Nearby POI
+                </span>
+                <span v-else>
+                  Show Nearby POI
+                </span>
+              </button>
             </div>
-          </div>
-        </li>
-      </ul>
+
+            <!-- Zero POI Notice (T014) -->
+            <div
+              v-if="discoveryStore.activePoiCandidateRank === spot.rank && !discoveryStore.nearbyPoiLoading && discoveryStore.nearbyPois.length === 0"
+              class="zero-poi-notice"
+            >
+              No relevant nearby POIs found within 2km.
+            </div>
+
+            <!-- Nearby POIs List with Names & Metrics -->
+            <div
+              v-if="discoveryStore.activePoiCandidateRank === spot.rank && discoveryStore.nearbyPois.length > 0"
+              class="nearby-poi-box"
+            >
+              <div class="nearby-box-title">
+                Nearby POIs ({{ discoveryStore.nearbyPois.length }} within 2km):
+              </div>
+              <ul class="nearby-poi-list">
+                <li
+                  v-for="poi in discoveryStore.nearbyPois.slice(0, 6)"
+                  :key="poi.id"
+                  class="nearby-poi-row"
+                >
+                  <span class="poi-name">{{ poi.name }}</span>
+                  <span class="poi-meta">
+                    ★ {{ poi.rating || '4.0' }} • {{ poi.distanceMeters }}m
+                  </span>
+                </li>
+              </ul>
+              <div v-if="discoveryStore.nearbyPois.length > 6" class="nearby-more-text">
+                + {{ discoveryStore.nearbyPois.length - 6 }} more pins on map
+              </div>
+            </div>
+          </li>
+        </ul>
+      </template>
     </div>
 
     <!-- Candidate Detail Modal on Pin Click (US2) -->
@@ -109,9 +125,14 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import { useDiscoveryStore } from '../stores/discovery.store';
 
 const discoveryStore = useDiscoveryStore();
+
+onMounted(() => {
+  discoveryStore.fetchHistory();
+});
 </script>
 
 <style scoped>
@@ -142,6 +163,7 @@ const discoveryStore = useDiscoveryStore();
 }
 
 h1 {
+  flex-shrink: 0;
   margin: 0 0 0.25rem 0;
   font-size: 1.25rem;
   color: #1a202c;
@@ -149,6 +171,7 @@ h1 {
 }
 
 .subtitle {
+  flex-shrink: 0;
   margin: 0 0 1rem 0;
   font-size: 0.8125rem;
   color: #718096;
@@ -162,11 +185,57 @@ h1 {
   font-size: 0.875rem;
 }
 
+.history-strip {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-top: 0.125rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.history-chip {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.375rem 0.75rem;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.history-chip.active {
+  border-color: #3182ce;
+  background: #ebf8ff;
+}
+
+.chip-region {
+  font-size: 0.6875rem;
+  color: #4a5568;
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip-count {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #2b6cb0;
+}
+
 .candidate-list {
   list-style: none;
   margin: 0;
   padding: 0;
   overflow-y: auto;
+  min-height: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;

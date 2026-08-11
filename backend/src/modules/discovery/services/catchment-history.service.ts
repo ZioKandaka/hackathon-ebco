@@ -14,6 +14,7 @@ export class CatchmentHistoryService {
   async saveRun(
     userId: string,
     input: {
+      locationId?: string;
       locationName: string;
       category: string;
       latitude: number;
@@ -22,6 +23,7 @@ export class CatchmentHistoryService {
   ): Promise<CatchmentAnalysisRun> {
     const run = this.catchmentRunRepository.create({
       userId,
+      locationId: input.locationId,
       locationName: input.locationName,
       category: input.category,
       latitude: input.latitude,

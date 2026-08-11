@@ -5,10 +5,12 @@ import { ChatMessage, MessageSender } from './entities/chat-message.entity';
 import { GeocodingService } from '../locations/services/geocoding.service';
 import { LocationsService } from '../locations/services/locations.service';
 import { DiscoveryService } from '../discovery/services/discovery.service';
+import { DiscoveryHistoryService } from '../discovery/services/discovery-history.service';
 import { SiteVisitService } from '../discovery/services/site-visit.service';
 import { SiteVisitHistoryService } from '../discovery/services/site-visit-history.service';
 import { VertexAiOrchestratorService } from './vertexai-orchestrator.service';
 import { CatchmentHistoryService } from '../discovery/services/catchment-history.service';
+import { HeatmapHistoryService } from '../discovery/services/heatmap-history.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -16,10 +18,12 @@ describe('ChatService', () => {
   let mockGeocodingService: any;
   let mockLocationsService: any;
   let mockDiscoveryService: any;
+  let mockDiscoveryHistoryService: any;
   let mockSiteVisitService: any;
   let mockSiteVisitHistoryService: any;
   let mockVertexAiOrchestratorService: any;
   let mockCatchmentHistoryService: any;
+  let mockHeatmapHistoryService: any;
 
   beforeEach(async () => {
     mockRepository = {
@@ -143,6 +147,11 @@ describe('ChatService', () => {
       ),
     };
 
+    mockDiscoveryHistoryService = {
+      saveRun: jest.fn().mockResolvedValue({ id: 'search-uuid-1', createdAt: new Date('2026-08-11T00:00:00.000Z') }),
+      getUserRuns: jest.fn().mockResolvedValue([]),
+    };
+
     mockSiteVisitService = {
       analyzeSite: jest.fn().mockResolvedValue({
         hasStreetViewCoverage: true,
@@ -169,6 +178,11 @@ describe('ChatService', () => {
       getUserRuns: jest.fn().mockResolvedValue([]),
     };
 
+    mockHeatmapHistoryService = {
+      saveRun: jest.fn().mockResolvedValue({ id: 'heatmap-uuid-1', createdAt: new Date('2026-08-11T00:00:00.000Z') }),
+      getUserRuns: jest.fn().mockResolvedValue([]),
+    };
+
     mockVertexAiOrchestratorService = {
       processUserMessage: jest.fn().mockImplementation(async (msg, history, locations, executors, subject) => {
         if (msg.includes('Find coffee shop candidates') && msg.includes('heatmap')) {
@@ -178,7 +192,7 @@ describe('ChatService', () => {
           const hm = await executors.generate_heatmap({ category: 'coffee_shop', locationNameOrId: 'Kediri' });
           return {
             textResponse: 'Synthesized multi-tool analysis report for Kediri.',
-            accumulatedPayloads: { candidates: disc.candidates, heatmapData: hm },
+            accumulatedPayloads: { discoveryData: disc, heatmapData: hm },
           };
         } else if (msg.includes('heatmap') || msg.includes('Heatmap')) {
           subject.next({ data: { type: 'status', step: 'Calling generate_heatmap...' } });
@@ -238,6 +252,10 @@ describe('ChatService', () => {
           useValue: mockDiscoveryService,
         },
         {
+          provide: DiscoveryHistoryService,
+          useValue: mockDiscoveryHistoryService,
+        },
+        {
           provide: SiteVisitService,
           useValue: mockSiteVisitService,
         },
@@ -248,6 +266,10 @@ describe('ChatService', () => {
         {
           provide: CatchmentHistoryService,
           useValue: mockCatchmentHistoryService,
+        },
+        {
+          provide: HeatmapHistoryService,
+          useValue: mockHeatmapHistoryService,
         },
         {
           provide: VertexAiOrchestratorService,
@@ -799,7 +821,8 @@ describe('ChatService', () => {
           expect(events[0].step).toContain('Calling discover_locations');
           const messageEvent = events.find((e) => e.type === 'message');
           expect(messageEvent).toBeDefined();
-          expect(messageEvent.candidates).toBeDefined();
+          expect(messageEvent.discoveryData).toBeDefined();
+          expect(messageEvent.discoveryData.candidates).toBeDefined();
           expect(messageEvent.heatmapData).toBeDefined();
           done();
         },

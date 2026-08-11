@@ -69,38 +69,51 @@ export class DiscoveryService {
     region: string,
     limit = 5,
   ): Promise<DiscoveryCandidate[]> {
-    const rawPois = await this.bigqueryDiscoveryService.queryPoisByRegion(
-      businessType,
-      region,
-    );
+    const [peerCategories, demandCategories] = await Promise.all([
+      this.poiRelevanceClassifierService.classifyRelevantCategories(businessType),
+      this.poiRelevanceClassifierService.classifyDemandDriverCategories(businessType),
+    ]);
 
-    const candidates: DiscoveryCandidate[] = rawPois
-      .slice(0, limit)
-      .map((poi, index) => {
-        const rank = index + 1;
-        const demandScore = Math.min(95, Math.max(60, 95 - index * 4));
-        const competitionCount = index === 0 ? 0 : index % 2;
+    const rawPois = await this.bigqueryDiscoveryService.queryPoisByRegion(businessType, region);
+    const candidateSpots = rawPois.slice(0, limit);
 
-        const demandCategories = this.bigqueryDiscoveryService.getDemandCategoriesForType(businessType);
-        const topCategory = demandCategories[index % demandCategories.length] || 'office';
+    const candidates: DiscoveryCandidate[] = [];
+    for (const [index, poi] of candidateSpots.entries()) {
+      const rank = index + 1;
 
-        const rationale =
-          competitionCount === 0
-            ? `High ${topCategory} density; 0 same-type ${businessType} competitors within 1km.`
-            : `Strong ${topCategory} foot traffic; low competitor density within 1.5km.`;
+      // Real 1km-radius signal per candidate — same demand/competitor category classifiers and
+      // the same ratio-based demand formula already established for Catchment's demandDensity
+      // sub-score, so a "demand score" means the same thing across features.
+      const nearby = await this.bigqueryDiscoveryService.queryPoisWithinRadius(
+        poi.latitude,
+        poi.longitude,
+        1000,
+      );
+      const nearbyDemand = nearby.filter((p) => demandCategories.includes(p.standardizedCategory));
+      const nearbyCompetitors = nearby.filter((p) => peerCategories.includes(p.standardizedCategory));
 
-        return {
-          rank,
-          name: poi.name,
-          latitude: poi.latitude,
-          longitude: poi.longitude,
-          demandScore,
-          competitionCount,
-          rationale,
-          regencyCode: poi.regencyCode || '3506',
-          businessType,
-        };
+      const demandScore = nearby.length > 0
+        ? Math.min(100, Math.max(10, Math.round((nearbyDemand.length / nearby.length) * 120)))
+        : 10;
+      const competitionCount = nearbyCompetitors.length;
+
+      const topDemandCategory = demandCategories[0]?.replace(/_/g, ' ');
+      const rationale = topDemandCategory
+        ? `${nearbyDemand.length} real ${topDemandCategory}-type demand POI${nearbyDemand.length === 1 ? '' : 's'} and ${competitionCount} same-type competitor${competitionCount === 1 ? '' : 's'} within 1km.`
+        : `${competitionCount} same-type competitor${competitionCount === 1 ? '' : 's'} within 1km.`;
+
+      candidates.push({
+        rank,
+        name: poi.name,
+        latitude: poi.latitude,
+        longitude: poi.longitude,
+        demandScore,
+        competitionCount,
+        rationale,
+        regencyCode: poi.regencyCode || '3506',
+        businessType,
       });
+    }
 
     return candidates;
   }

@@ -5,6 +5,7 @@ import { ChatSseService, ChatStreamEvent } from '../services/chat-sse.service';
 import { useDiscoveryStore } from './discovery.store';
 import { useCatchmentStore } from './catchment.store';
 import { useSiteVisitStore } from './siteVisit.store';
+import { useHeatmapStore } from './heatmap.store';
 import { googleMapService } from '../services/google-map.service';
 
 export interface ChatMessageItem {
@@ -68,13 +69,14 @@ export const useChatStore = defineStore('chat', () => {
 
           messages.value.push(newMsg);
 
-          if (event.candidates && Array.isArray(event.candidates) && event.candidates.length > 0) {
+          if (event.discoveryData && event.discoveryData.candidates) {
             const discoveryStore = useDiscoveryStore();
-            discoveryStore.setCandidates(event.candidates);
+            discoveryStore.addRun(event.discoveryData);
           }
 
           if (event.heatmapData && event.heatmapData.points) {
-            googleMapService.renderHeatmap(event.heatmapData.points, { fitBounds: true });
+            const heatmapStore = useHeatmapStore();
+            heatmapStore.addRun(event.heatmapData);
           }
 
           if (event.catchmentData && event.catchmentData.center) {

@@ -59,11 +59,42 @@ export const useLocationsStore = defineStore('locations', () => {
     }
   }
 
+  async function updateLocation(id: string, patch: Partial<UserLocationItem>) {
+    error.value = null;
+    try {
+      const response = await apiClient.patch<{ location: UserLocationItem }>(`/locations/${id}`, patch);
+      const updated = response.data.location;
+      const idx = locations.value.findIndex((l) => l.id === id);
+      if (idx !== -1) {
+        locations.value[idx] = updated;
+      }
+      renderLocationPins();
+      return updated;
+    } catch (err: any) {
+      error.value = err.response?.data?.message || 'Failed to update location.';
+      throw err;
+    }
+  }
+
+  async function deleteLocation(id: string) {
+    error.value = null;
+    try {
+      await apiClient.delete(`/locations/${id}`);
+      locations.value = locations.value.filter((l) => l.id !== id);
+      renderLocationPins();
+    } catch (err: any) {
+      error.value = err.response?.data?.message || 'Failed to delete location.';
+      throw err;
+    }
+  }
+
   return {
     locations,
     loading,
     error,
     fetchLocations,
     renderLocationPins,
+    updateLocation,
+    deleteLocation,
   };
 });

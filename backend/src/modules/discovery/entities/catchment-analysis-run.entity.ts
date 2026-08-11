@@ -29,6 +29,12 @@ export class CatchmentAnalysisRun {
   @Index()
   userId!: string;
 
+  // Nullable — only set when this run was against a real saved business location, not an ad-hoc
+  // candidate spot or geocoded address. Lets My Locations show "latest catchment score" per spot.
+  @Column({ type: 'uuid', name: 'location_id', nullable: true })
+  @Index()
+  locationId?: string;
+
   @Column({ type: 'varchar', length: 255, name: 'location_name' })
   locationName!: string;
 

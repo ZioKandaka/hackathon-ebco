@@ -12,6 +12,8 @@ import { UserLocation } from './modules/locations/entities/user-location.entity'
 import { IsochroneCache } from './modules/discovery/entities/isochrone-cache.entity';
 import { CatchmentAnalysisRun } from './modules/discovery/entities/catchment-analysis-run.entity';
 import { SiteVisitReport } from './modules/discovery/entities/site-visit-report.entity';
+import { DiscoverySearchRun } from './modules/discovery/entities/discovery-search-run.entity';
+import { HeatmapQueryRun } from './modules/discovery/entities/heatmap-query-run.entity';
 
 @Module({
   imports: [
@@ -25,7 +27,7 @@ import { SiteVisitReport } from './modules/discovery/entities/site-visit-report.
       username: process.env.DB_USERNAME,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, ChatMessage, UserLocation, IsochroneCache, CatchmentAnalysisRun, SiteVisitReport],
+      entities: [User, ChatMessage, UserLocation, IsochroneCache, CatchmentAnalysisRun, SiteVisitReport, DiscoverySearchRun, HeatmapQueryRun],
       synchronize: process.env.NODE_ENV !== 'production',
     }),
     AuthModule,

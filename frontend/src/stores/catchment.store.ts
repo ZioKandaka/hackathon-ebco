@@ -8,6 +8,7 @@ const CENTER_MARKER_ID = 'catchment-center';
 
 export interface CatchmentRun {
   id: string;
+  locationId?: string;
   locationName: string;
   category: string;
   boundaryType: 'radius' | 'time';
@@ -30,6 +31,7 @@ export interface CatchmentRun {
 // SSE CatchmentDataPayload shape — both get normalized into CatchmentRun below.
 interface RawHistoryRun {
   id: string;
+  locationId?: string;
   locationName: string;
   category: string;
   latitude: string | number;
@@ -52,6 +54,7 @@ interface RawHistoryRun {
 function normalizeHistoryRun(raw: RawHistoryRun): CatchmentRun {
   return {
     id: raw.id,
+    locationId: raw.locationId,
     locationName: raw.locationName,
     category: raw.category,
     boundaryType: raw.boundaryType,
@@ -74,6 +77,7 @@ function normalizeHistoryRun(raw: RawHistoryRun): CatchmentRun {
 function normalizeLiveRun(payload: CatchmentDataPayload): CatchmentRun {
   return {
     id: payload.analysisId,
+    locationId: payload.locationId,
     locationName: payload.locationName,
     category: payload.category,
     boundaryType: payload.boundaryType,

@@ -43,6 +43,50 @@ const CRITERION_WEIGHTS: Record<keyof VisualCriteriaMap, number> = {
 
 const CRITERION_KEYS = Object.keys(CRITERION_WEIGHTS) as (keyof VisualCriteriaMap)[];
 
+/**
+ * Extracts the first complete top-level JSON object from a model response by tracking brace
+ * depth and string-literal state, rather than a greedy `/\{[\s\S]*\}/` regex — the model's raw
+ * text sometimes includes trailing prose or a second brace after the real JSON object (e.g. a
+ * markdown fence artifact or restated example), which a greedy match would swallow into the
+ * "JSON" string and fail to parse with a "non-whitespace character after JSON" error.
+ */
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const char = text[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      depth++;
+    } else if (char === '}') {
+      depth--;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
 @Injectable()
 export class SiteVisitService {
   private readonly logger = new Logger(SiteVisitService.name);
@@ -209,8 +253,8 @@ STRICT RULES:
       });
       const text =
         result.response.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+      const jsonText = extractFirstJsonObject(text);
+      const parsed = jsonText ? JSON.parse(jsonText) : null;
 
       if (!parsed || typeof parsed !== 'object') {
         throw new Error('AI vision analysis returned an unreadable response.');
