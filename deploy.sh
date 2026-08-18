@@ -106,12 +106,32 @@ if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
   fi
 
   log "Granting IAM roles to runtime service account"
-  for role in roles/cloudsql.client roles/bigquery.jobUser roles/bigquery.dataViewer roles/aiplatform.user; do
+  # bigquery.jobUser here lets the service account RUN query jobs, billed to this project.
+  # It does NOT grant read access to any table — that's separate, per-dataset access below.
+  for role in roles/cloudsql.client roles/bigquery.jobUser roles/aiplatform.user; do
     gcloud projects add-iam-policy-binding "$PROJECT_ID" \
       --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
       --role="$role" \
       --condition=None >/dev/null
   done
+
+  # The POI dataset lives in a separate GCP project (bni-geospatial-845e), not this one — a
+  # dataViewer grant on $PROJECT_ID does nothing for it. This grant must be made on THAT
+  # project, which may be centrally managed and outside this account's IAM-admin rights, so
+  # failure here is non-fatal: warn and give the exact command to hand to whoever administers it.
+  BIGQUERY_DATA_PROJECT="bni-geospatial-845e"
+  log "Granting BigQuery read access on cross-project dataset '${BIGQUERY_DATA_PROJECT}'"
+  if ! gcloud projects add-iam-policy-binding "$BIGQUERY_DATA_PROJECT" \
+    --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+    --role="roles/bigquery.dataViewer" \
+    --condition=None >/dev/null 2>&1; then
+    echo "  !! Could not grant bigquery.dataViewer on '${BIGQUERY_DATA_PROJECT}' — you likely lack IAM-admin rights there." >&2
+    echo "     Ask whoever administers that project to run:" >&2
+    echo "       gcloud projects add-iam-policy-binding ${BIGQUERY_DATA_PROJECT} \\" >&2
+    echo "         --member=\"serviceAccount:${RUNTIME_SERVICE_ACCOUNT}\" \\" >&2
+    echo "         --role=\"roles/bigquery.dataViewer\"" >&2
+    echo "     Until then, Discover/Heatmap/Catchment/Site Visit will fail with a BigQuery Access Denied error." >&2
+  fi
 
   log "Building backend image via Cloud Build: ${BACKEND_IMAGE}"
   gcloud builds submit backend/ --tag "$BACKEND_IMAGE"
